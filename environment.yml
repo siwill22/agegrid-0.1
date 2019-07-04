@@ -1,0 +1,16 @@
+name: agegrid
+dependencies:
+  - python=2
+  - numpy
+  - matplotlib
+  - scipy
+  - scikit-image
+  - pandas
+  - xarray
+  - joblib
+  - geopandas
+  - healpy
+  - pyyaml
+  - gmt
+
+

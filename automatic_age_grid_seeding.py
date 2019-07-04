@@ -1,0 +1,801 @@
+
+"""
+    Copyright (C) 2017 The University of Sydney, Australia
+
+    This program is free software; you can redistribute it and/or modify it under
+    the terms of the GNU General Public License, version 2, as published by
+    the Free Software Foundation.
+
+    This program is distributed in the hope that it will be useful, but WITHOUT
+    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+    for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+"""
+
+import pygplates
+import numpy as np
+import pandas as pd
+import os
+import multiprocessing
+import glob
+from ptt.utils.call_system_command import call_system_command
+import xarray as xr
+from joblib import Parallel, delayed
+import tempfile
+import yaml
+
+import pttx.points_spatial_tree as points_spatial_tree
+import pttx.points_in_polygons as points_in_polygons
+
+import pttx.paleogeography as pg
+import pttx.paleotopography as pt
+import pttx.polygon_processing as pp
+
+import reconstruct_by_topologies as rbt
+
+import ptt.separate_ridge_transform_segments as separate_ridge_transform_segments
+
+#
+# Code to automatically generate seafloor age grids from a topological plate reconstruction model
+#
+# Authors: Simon Williams, John Cannon, Nicky Wright
+#
+
+
+###########################################################
+# parameter definition
+def get_input_parameters(config_file):
+
+    with open(config_file, 'r') as stream:
+        params = yaml.load(stream)
+
+        print 'Reading parameter file %s' % config_file
+
+        input_rotation_filenames = []
+        for filename in params['InputFiles']['input_rotation_filenames']:
+            input_rotation_filenames.append('%s/%s' % (params['InputFiles']['MODELDIR'],filename))
+
+        topology_features = []
+        for filename in params['InputFiles']['topology_features']:
+            topology_features.append('%s/%s' % (params['InputFiles']['MODELDIR'],filename))
+
+        COBterrane_file = '%s/%s' % (params['InputFiles']['MODELDIR'],
+                                     params['InputFiles']['COBterrane_file'])
+
+        # These files are only needed if a present-day age grid is to be merged with the result
+        present_day_age_grid_file = params['InputFiles']['present_day_age_grid_file']
+        static_polygon_file = params['InputFiles']['static_polygon_file']
+
+        # name of output directories
+        seedpoints_output_dir = params['OutputFiles']['seedpoints_output_dir']
+        grd_output_dir = params['OutputFiles']['grd_output_dir']
+        output_gridfile_template = params['OutputFiles']['output_gridfile_template']
+
+        # --- set parameters
+        min_time = params['TimeParameters']['min_time']
+        max_time = params['TimeParameters']['max_time']
+        mor_time_step = params['TimeParameters']['mor_time_step']
+        gridding_time_step = params['TimeParameters']['gridding_time_step']
+
+        # Distance in arc-degrees along ridges at which to tessellate lines to
+        # create seed points
+        # BUT: does not desample the points where the original line geometries
+        # are already closer than the specified distance
+        ridge_sampling = params['SpatialParameters']['ridge_sampling']
+
+        initial_ocean_healpix_sampling = params['SpatialParameters']['initial_ocean_healpix_sampling']   # must be power 2 number
+        initial_ocean_mean_spreading_rate = params['SpatialParameters']['initial_ocean_mean_spreading_rate']
+
+        area_threshold = params['SpatialParameters']['area_threshold']  # used to remove small polygons in the masking. Units are area on unit sphere
+
+        # Control the gridding extent and resolution parameters passed to GMT
+        grdspace = params['SpatialParameters']['grdspace']  # in degrees
+        xmin = params['SpatialParameters']['xmin']
+        xmax = params['SpatialParameters']['xmax']
+        ymin = params['SpatialParameters']['ymin']
+        ymax = params['SpatialParameters']['ymax']
+        region = '%0.6f/%0.6f/%0.6f/%0.6f' % (xmin,xmax,ymin,ymax)
+
+        grid_masking = params['SpatialParameters']['grid_masking']
+
+        num_cpus = params['num_cpus']
+
+    return (input_rotation_filenames, topology_features, COBterrane_file, present_day_age_grid_file,
+            static_polygon_file, seedpoints_output_dir, grd_output_dir, output_gridfile_template,
+            min_time, max_time, mor_time_step, gridding_time_step, ridge_sampling,
+            initial_ocean_healpix_sampling, initial_ocean_mean_spreading_rate, area_threshold,
+            grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus)
+
+
+
+###########################################################
+def get_mid_ocean_ridges(shared_boundary_sections,rotation_model,reconstruction_time,time_step,sampling=2.0):
+    """ Get tessellated points along a mid ocean ridge"""
+
+    shifted_mor_points = []
+
+    for shared_boundary_section in shared_boundary_sections:
+        # The shared sub-segments contribute either to the ridges or to the subduction zones.
+        if shared_boundary_section.get_feature().get_feature_type() == pygplates.FeatureType.create_gpml('MidOceanRidge'):
+            # Ignore zero length segments - they don't have a direction.
+            spreading_feature = shared_boundary_section.get_feature()
+
+            # Find the stage rotation of the spreading feature in the frame of reference of its
+            # geometry at the current reconstruction time (the MOR is currently actively spreading).
+            # The stage pole can then be directly geometrically compared to the *reconstructed* spreading geometry.
+            stage_rotation = separate_ridge_transform_segments.get_stage_rotation_for_reconstructed_geometry(
+                spreading_feature, rotation_model, reconstruction_time)
+            if not stage_rotation:
+                # Skip current feature - it's not a spreading feature.
+                continue
+
+            # Get the stage pole of the stage rotation.
+            # Note that the stage rotation is already in frame of reference of the *reconstructed* geometry at the spreading time.
+            stage_pole, _ = stage_rotation.get_euler_pole_and_angle()
+
+            # One way rotates left and the other right, but don't know which - doesn't matter in our example though.
+            rotate_slightly_off_mor_one_way = pygplates.FiniteRotation(stage_pole, np.radians(0.01))
+            rotate_slightly_off_mor_opposite_way = rotate_slightly_off_mor_one_way.get_inverse()
+
+            # Iterate over the shared sub-segments.
+            for shared_sub_segment in shared_boundary_section.get_shared_sub_segments():
+
+                # Tessellate MOR section.
+                mor_points = pygplates.MultiPointOnSphere(shared_sub_segment.get_resolved_geometry().to_tessellated(np.radians(sampling)))
+
+                # NOTE temporary hack to avoid seed points at ridge trench intersections
+                for point in mor_points.get_points()[1:-1]:
+                    # Append shifted geometries (one with points rotated one way and the other rotated the opposite way).
+                    shifted_mor_points.append(rotate_slightly_off_mor_one_way * point)
+                    shifted_mor_points.append(rotate_slightly_off_mor_opposite_way * point)
+
+    #print shifted_mor_points
+    return shifted_mor_points
+
+
+def get_isochrons_for_ridge_snapshot(topology_features,
+                                     rotation_filename,
+                                     out_dir,
+                                     ridge_time,
+                                     time_step,
+                                     youngest_seed_time=0,
+                                     ridge_sampling=2.
+                                    ):
+    print "... Writing seed points along a ridge"
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    rotation_model = pygplates.RotationModel(rotation_filename)
+
+    oldest_seed_time = ridge_time
+
+    all_longitudes = []
+    all_latitudes = []
+    all_ages = []
+
+    # The first step is to generate points along the ridge
+    resolved_topologies = []
+    shared_boundary_sections = []
+    pygplates.resolve_topologies(topology_features, rotation_filename, resolved_topologies, oldest_seed_time, shared_boundary_sections)
+
+    # Previous points are on the MOR, current are moved by one time step off MOR.
+    curr_points = get_mid_ocean_ridges(shared_boundary_sections, rotation_model, oldest_seed_time, time_step, ridge_sampling)
+
+    # Write out the ridge point born at 'ridge_time' but their position at 'ridge_time - time_step'.
+    mor_point_features = []
+    for curr_point in curr_points:
+        feature = pygplates.Feature()
+        feature.set_geometry(curr_point)
+        feature.set_valid_time(ridge_time, -999)  # delete - time_step
+        mor_point_features.append(feature)
+    pygplates.FeatureCollection(mor_point_features).write('./%s/MOR_plus_one_points_%0.2f.gmt' % (out_dir, ridge_time))
+    #
+    print "... Finished writing seed points along the mid ocean ridge for %0.2f Ma" % ridge_time
+
+
+# --- for parallelisation
+def get_isochrons_for_ridge_snapshot_parallel_pool_function(args):
+    try:
+        return get_isochrons_for_ridge_snapshot(*args)
+    except KeyboardInterrupt:
+        pass
+
+
+def get_isochrons_for_ridge_snapshot_parallel(topology_features, rotation_filename,
+                                              out_dir, pool_ridge_time_list,
+                                              time_step, youngest_seed_time=0.,
+                                              ridge_sampling=2, num_cpus=1):
+
+    if num_cpus==1:
+        for pool_ridge_time in pool_ridge_time_list:
+            get_isochrons_for_ridge_snapshot(topology_features, rotation_filename,
+                                             out_dir, pool_ridge_time,
+                                             time_step, youngest_seed_time, ridge_sampling)
+        return
+
+    else:
+        Parallel(n_jobs=num_cpus)(delayed(get_isochrons_for_ridge_snapshot) \
+                                  (topology_features, rotation_filename,
+                                   out_dir, pool_ridge_time,
+                                   time_step, youngest_seed_time, ridge_sampling)
+                                  for pool_ridge_time in pool_ridge_time_list)
+
+
+
+def merge_features(young_time, old_time, time_step, outdir, cleanup=False):
+    # merge the seed points from the 'initial condition' and generated through
+    # the reconstructed mid-ocean ridges through time into a single file
+    # TODO
+    # - why not use gpmlz NO DON'T USE GPML, SERIOUSLY
+    # - filenames should not be hard-coded
+
+    merge_features = []
+
+    for time in np.arange(old_time, young_time-time_step, -time_step):
+        filename = './%s/MOR_plus_one_points_%0.2f.gmt' % (outdir, time)
+        print 'merging seeds from file %s' % filename
+        features = pygplates.FeatureCollection(filename)
+        for feature in features:
+            merge_features.append(feature)
+
+    merge_filename = './%s/MOR_plus_one_merge_%0.2f_%0.2f.gmt' % (outdir, young_time, old_time)
+    print 'Attempting to write merged file %s' % merge_filename
+    pygplates.FeatureCollection(merge_features).write(merge_filename)
+
+    if cleanup:
+        # remove old files that are no longer needed
+        for f in glob.glob("%s/MOR_plus_one_points_*.gmt" % outdir):
+            os.remove(f)
+        for f in glob.glob("%s/MOR_plus_one_points_*.gmt.gplates.xml" % outdir):
+            os.remove(f)
+
+
+def write_xyz_file(output_filename, output_data):
+    with open(output_filename, 'w') as output_file:
+        for output_line in output_data:
+            output_file.write(' '.join(str(item) for item in output_line) + '\n')
+
+
+def get_initial_ocean_seeds(topology_features, input_rotation_filenames, COBterrane_file, output_directory,
+                            time, initial_ocean_mean_spreading_rate, initial_ocean_healpix_sampling,
+                            area_threshold, mask_sampling=0.5):
+    # Get a set of points at the oldest time for a reconstruction sequence, such that the points
+    # populate the ocean basins (defined using the COB Terrane polygons) and are assigned ages assuming
+    # a uniform average spreading rate combined with the distance of each point to the nearest
+    # MidOceanRidge feature in the resolved plate boundary of the the plate containing the point
+
+    print 'Begin creating seed points for initial ocean at reconstruction start time....'
+
+    rotation_model = pygplates.RotationModel(input_rotation_filenames)
+
+    cobter = pt.get_merged_cob_terrane_polygons(COBterrane_file, rotation_model,time,
+                                                mask_sampling, area_threshold)
+
+    ocean_points = pg.rasterise_paleogeography(cobter, rotation_model,time,
+                                               sampling=initial_ocean_healpix_sampling, meshtype='healpix',
+                                               masking='Inside')
+
+    resolved_topologies = []
+    shared_boundary_sections = []
+    pygplates.resolve_topologies(topology_features, rotation_model, resolved_topologies, time, shared_boundary_sections)
+
+    pX,pY,pZ = pg.find_distance_to_nearest_ridge(resolved_topologies, shared_boundary_sections, ocean_points)
+
+    # divide spreading rate by 2 to use half spreading rate
+    pAge = np.array(pZ) / (initial_ocean_mean_spreading_rate/2.)
+
+    initial_ocean_point_features = []
+
+    for point in zip(pX,pY,pAge):
+
+        point_feature = pygplates.Feature()
+        point_feature.set_geometry(pygplates.PointOnSphere(point[1], point[0]))
+
+        # note that we add 'time' to the age at the time of computation
+        # to get the valid time in Ma
+        point_feature.set_valid_time(point[2]+time, -1)
+        initial_ocean_point_features.append(point_feature)
+
+    pygplates.FeatureCollection(initial_ocean_point_features).write('%s/age_from_distance_to_mor_%0.2fMa.gmt' % (output_directory,time))
+
+    print 'done'
+
+
+def get_isochrons_from_topologies(topology_features, input_rotation_filenames, output_directory,
+                                  max_time, min_time, time_step, ridge_sampling, num_cpus):
+
+    print 'Begin generating seed points along mid ocean ridges from %s Ma to %s Ma at %sMyr increments....' % (max_time, min_time, time_step)
+
+    youngest_seed_time = time_step
+    pool_ridge_time_list = np.arange(max_time, min_time-time_step, -time_step)  # times to create gpml files at
+
+    # here, you can optionally specify a different time step for the output file
+    # than the computation. Can be useful if you want to generate seed points
+    # at every Myr but then make a sparsely sampled version to load into GPlates
+    # (in which case, set 'cleanup=False' in the merge call below)
+    time_step_for_output_file = time_step
+
+    # Call the main function.
+    # The results are saved in individual GMT format files, one per time step,
+    # containing point features (loadable into GPlates)
+    get_isochrons_for_ridge_snapshot_parallel(topology_features, input_rotation_filenames,
+                                              output_directory,
+                                              pool_ridge_time_list, time_step,
+                                              youngest_seed_time, ridge_sampling, num_cpus)
+
+    # merge the GMT files from different time steps into a single file
+    #print 'Merging seed points into one feature collection....'
+    #merge_features(min_time, max_time, time_step_for_output_file, output_directory, cleanup=True)
+
+    print 'done'
+
+
+def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
+                      mor_seedpoint_filename, initial_ocean_seedpoint_filename,
+                      max_time, min_time, time_step, dump_to_file=False):
+    # reconstruct the seed points using the reconstruct_by_topologies function
+    # returns the result either as lists or dumps to an ascii file
+
+    rotation_model = pygplates.RotationModel(input_rotation_filenames)
+
+    print 'Begin assembling seed points and reconstructing by topologies....'
+
+    # load features to reconstruct
+    cp = []  # current_point # TODO more verbose names for cp and at
+    at = []  # appearance_time
+    birth_lat = []  # latitude_of_crust_formation
+
+    seeds_at_start_time = pygplates.FeatureCollection(initial_ocean_seedpoint_filename)
+    for feature in seeds_at_start_time:
+        cp.append(feature.get_geometry())
+        at.append(feature.get_valid_time()[0])
+        birth_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
+
+    #seeds_from_topologies = pygplates.FeatureCollection(mor_seedpoint_filename)
+    seeds_from_topologies = []
+
+    for time in np.arange(max_time, min_time-time_step, -time_step):
+        filename = './%s/MOR_plus_one_points_%0.2f.gmt' % (seedpoints_output_dir, time)
+        print 'merging seeds from file %s' % filename
+        features = pygplates.FeatureCollection(filename)
+        for feature in features:
+            seeds_from_topologies.append(feature)
+
+    for feature in seeds_from_topologies:
+        if feature.get_valid_time()[0]<max_time:
+            cp.append(feature.get_geometry())
+            at.append(feature.get_valid_time()[0])
+            birth_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
+
+    point_id = range(len(cp))
+
+    print 'preparing reconstruction by topologies....'
+    topology_reconstruction = rbt.ReconstructByTopologies(
+            rotation_model, topology_features,
+            max_time, min_time, time_step,
+            cp, point_begin_times=at,
+            feature_specific_collision_parameters = [(pygplates.FeatureType.gpml_subduction_zone, (7.0, 15.0))])
+
+    # Initialise the reconstruction.
+    topology_reconstruction.begin_reconstruction()
+
+    # Loop over the reconstruction times until reached end of the reconstruction time span, or
+    # all points have entered their valid time range *and* either exited their time range or
+    # have been deactivated (subducted forward in time or consumed by MOR backward in time).
+    while True:
+        print 'reconstruct by topologies: working on time %s Ma' % (topology_reconstruction.get_current_time())
+
+        curr_points = topology_reconstruction.get_active_current_points()
+        curr_lat_lon_points = [point.to_lat_lon() for point in curr_points]
+        if curr_lat_lon_points:
+            curr_latitudes, curr_longitudes = zip(*curr_lat_lon_points)
+
+            seafloor_age = []
+            birth_lat_snapshot = []
+            point_id_snapshot = []
+            for point_index,current_point in enumerate(topology_reconstruction.get_all_current_points()):
+                if current_point is not None:
+                    #all_birth_ages.append(at[point_index])
+                    seafloor_age.append(at[point_index] - topology_reconstruction.get_current_time())
+                    birth_lat_snapshot.append(birth_lat[point_index])
+                    point_id_snapshot.append(point_id[point_index])
+
+
+            write_xyz_file('./gridding_input_temp/gridding_input_temp_%0.1fMa.xy' % topology_reconstruction.get_current_time(),
+                           zip(curr_longitudes,
+                           curr_latitudes,
+                           seafloor_age,
+                           birth_lat_snapshot,
+                           point_id_snapshot))
+
+        if not topology_reconstruction.reconstruct_to_next_time():
+            break
+
+    print 'done'
+    return
+
+
+##################################################################
+
+def make_grid_for_reconstruction_time(raw_point_file, age_grid_time, grdspace, region, output_dir, output_filename_template='seafloor_age_'):
+    # given a set of reconstructed points with ages, makes a global grid using
+    # blockmedian and sphinterpolate
+
+    block_median_points = tempfile.NamedTemporaryFile()
+
+    call_system_command(['gmt',
+                         'blockmedian',
+                         raw_point_file,
+                         '-I{0}d'.format(grdspace),
+                         '-R{0}'.format(region),
+                         '-V',
+                         '>',
+                         block_median_points.name])
+
+    call_system_command(['gmt',
+                         'sphinterpolate',
+                         block_median_points.name,
+                         '-G{0}/unmasked/{1}{2}Ma.nc'.format(output_dir, output_filename_template, age_grid_time),
+                         '-I{0}d'.format(grdspace),
+                         '-R{0}'.format(region),
+                         '-V'])
+
+    block_median_points.delete
+
+
+def write_synthetic_points(all_longitudes, all_latitudes, all_birth_ages, all_reconstruction_ages,
+                           reconstruction_time, raw_point_file):
+    # writes an ascii file that contains the points to be input to make an age grid
+    # at one reconstruction time snapshot.
+
+    # we need the age of each point at the time of the reconstruction, which
+    # is the age of birth minus the reconstruction time
+    ages_at_reconstruction_time = np.array(all_birth_ages)-np.array(all_reconstruction_ages)
+
+    # create an index that isolates the points valid for this reconstruction time
+    index = np.equal(np.array(all_reconstruction_ages), reconstruction_time)
+
+    write_xyz_file(raw_point_file.name,zip(np.array(all_longitudes)[index],
+                                      np.array(all_latitudes)[index],
+                                      ages_at_reconstruction_time[index]))
+
+
+def mask_synthetic_points(reconstructed_present_day_lons, reconstructed_present_day_lats,
+                          reconstructed_present_day_ages, raw_point_file,
+                          grdspace, region, buffer_distance_degrees=1):
+    # given an existing ascii file contain only synthetic points at a given reconstruction time,
+    # and arrays defining points from the reconstructed present day age grid at this same time,
+    # --> create a mask to remove the synthetic points in the area of overlap (+ some buffer)
+    # --> apply the mask to remove the overlapping points
+    # --> concatentate the remaining synthetic points with the reconstructed present-day age grid points
+
+    reconstructed_present_day_age_file = tempfile.NamedTemporaryFile()
+    synthetic_age_masked_file = tempfile.NamedTemporaryFile()
+    masking_grid_file = tempfile.NamedTemporaryFile()
+
+    write_xyz_file(reconstructed_present_day_age_file.name, zip(reconstructed_present_day_lons,
+                                                                reconstructed_present_day_lats,
+                                                                reconstructed_present_day_ages))
+
+    call_system_command(['gmt',
+                         'grdmask',
+                         reconstructed_present_day_age_file.name,
+                         '-G%s' % masking_grid_file.name,
+                         '-I{0}d'.format(grdspace),
+                         '-R{0}'.format(region),
+                         '-S%0.6fd' % buffer_distance_degrees,
+                         '-V'])
+
+    call_system_command(['gmt',
+                         'gmtselect',
+                         raw_point_file.name,
+                         '-G%s' % masking_grid_file.name,
+                         '-Ig',
+                         '>',
+                         synthetic_age_masked_file.name])
+
+    # concatenate the files in a cross-platform way - overwriting the file that contains unmasked synthetic points
+    with open(raw_point_file.name, 'w') as outfile:
+        for fname in [synthetic_age_masked_file.name,reconstructed_present_day_age_file.name]:
+            with open(fname) as infile:
+                for line in infile:
+                    outfile.write(line)
+
+    reconstructed_present_day_age_file.delete
+    synthetic_age_masked_file.delete
+    masking_grid_file.delete
+
+
+def make_grids_from_reconstructed_seeds(input_rotation_filenames, max_time, min_time, time_step,
+                                        grdspace, region, grd_output_dir, output_gridfile_template,
+                                        present_day_age_grid_desampling_factor=1, num_cpus=1,
+                                        present_day_age_grid_file=None, static_polygon_file=None, COBterrane_file=None):
+
+    # given sets of reconstructed seed points, generates age grids for a series of
+    # reconstruction times
+    # optionally:
+    # 1. merge with present-day reconstructed age grid
+    # 2. mask using COB Terranes (or any reconstructable polygon file)
+
+    #rotation_model = pygplates.RotationModel(input_rotation_filenames)
+
+    time_list = np.arange(max_time, min_time-time_step, -time_step)
+
+    print 'Begin Gridding....'
+    if num_cpus>1:
+        print 'Running on %d cpus...' % num_cpus
+        Parallel(n_jobs=num_cpus)(delayed(gridding_job) \
+                                  (input_rotation_filenames, reconstruction_time,
+                                   grdspace, region, grd_output_dir, output_gridfile_template,
+                                   present_day_age_grid_desampling_factor,
+                                   present_day_age_grid_file, static_polygon_file) \
+                                  for reconstruction_time in time_list)
+
+    else:
+        for reconstruction_time in time_list:
+            gridding_job(input_rotation_filenames, reconstruction_time,
+                         grdspace, region, grd_output_dir, output_gridfile_template,
+                         present_day_age_grid_desampling_factor,
+                         present_day_age_grid_file, static_polygon_file)
+
+
+    print 'done'
+    print 'Results saved in directory %s' % grd_output_dir
+
+    if COBterrane_file is not None:
+
+        print 'Begin masking....'
+        Parallel(n_jobs=num_cpus)(delayed(masking_job) \
+                                  (reconstruction_time, COBterrane_file, input_rotation_filenames, grdspace,
+                                   grd_output_dir, output_gridfile_template) \
+                                  for reconstruction_time in time_list)
+
+    print 'All done'
+
+#########################################################################
+
+
+
+
+# Parallelisation Functions
+#########################################################################
+def gridding_job(input_rotation_filenames, reconstruction_time,
+                 grdspace, region, grd_output_dir, output_gridfile_template,
+                 present_day_age_grid_desampling_factor=1,
+                 present_day_age_grid_file=None, static_polygon_file=None):
+
+    if True:
+        raw_point_file = './gridding_input_temp/gridding_input_temp_%0.1fMa.xy' % reconstruction_time
+        make_grid_for_reconstruction_time(raw_point_file, reconstruction_time, grdspace, region,
+                                          grd_output_dir, output_gridfile_template)
+        return
+
+
+    ## TODO This code is bypassed now
+    ## need to handle case where we still want to merge reconstructed present-day age grid
+    if isinstance(reconstructed_seed_points,str):
+        all_longitudes = []
+        all_latitudes = []
+        all_birth_ages = []
+        all_reconstruction_ages = []
+        with open(reconstructed_seed_points) as f:
+            for line in f:
+                if len(line) < 4:
+                    continue
+                else:
+                    tmp = line.split()
+                    all_longitudes.append(float(tmp[0]))
+                    all_latitudes.append(float(tmp[1]))
+                    all_birth_ages.append(float(tmp[2]))
+                    all_reconstruction_ages.append(float(tmp[3]))
+
+    #For parallel jobs, must pass in filenames, not feature collections loaded into memory
+    rotation_model = pygplates.RotationModel(input_rotation_filenames)
+
+    #for reconstruction_time in np.arange(max_time, min_time, -time_step):
+
+    print 'Gridding for time %s Ma' % reconstruction_time
+
+    raw_point_file = tempfile.NamedTemporaryFile()
+
+    write_synthetic_points(all_longitudes, all_latitudes, all_birth_ages, all_reconstruction_ages,
+                           reconstruction_time, raw_point_file)
+
+    # TODO skip merging with present-day for times older than oldest value in age grid
+    # plus in general only use points that need to be reconstructed???
+    if present_day_age_grid_file is not None:
+
+        (reconstructed_present_day_lons,
+         reconstructed_present_day_lats,
+         reconstructed_present_day_ages) = reconstruct_present_day_age_grid(present_day_age_grid_file,
+                                                                            rotation_model,
+                                                                            static_polygon_file,
+                                                                            reconstruction_time,
+                                                                            present_day_age_grid_desampling_factor=present_day_age_grid_desampling_factor)
+
+        # take the reconstructed present-day points, mask the synthetic points,
+        mask_synthetic_points(reconstructed_present_day_lons, reconstructed_present_day_lats,
+                              reconstructed_present_day_ages, raw_point_file,
+                              grdspace, region, buffer_distance_degrees=1.)
+
+    make_grid_for_reconstruction_time(raw_point_file.name, reconstruction_time, grdspace, region, grd_output_dir)
+
+    raw_point_file.delete
+
+
+def masking_job(reconstruction_time, COBterrane_file, input_rotation_filenames,
+                grdspace, grd_output_dir, output_gridfile_template='seafloor_age_'):
+
+    rotation_model = pygplates.RotationModel(input_rotation_filenames)
+    print 'Masking for time %s Ma' % reconstruction_time
+    mask = pt.get_merged_cob_terrane_raster(COBterrane_file, rotation_model, reconstruction_time,
+                                            grdspace)
+
+    ds = xr.open_dataset('{0}/unmasked/{1}{2}Ma.nc'.format(grd_output_dir, output_gridfile_template, reconstruction_time))
+    # workaround for a bug in older versions of xarray, where masking array cannot be applied directly to data array
+    #ds['z'][mask==1] = np.nan
+    z_array = ds['z'].data
+    z_array[mask==1] = np.nan
+    ds['z'].data = z_array
+    ds.to_netcdf('{0}/masked/{1}mask_{2}Ma.nc'.format(grd_output_dir, output_gridfile_template, reconstruction_time),
+                 format='NETCDF4_CLASSIC')
+    ds.close()
+
+
+
+###############################################################################
+def reconstruct_raster(static_polygon_features,
+                       rotation_model,
+                       reconstruction_time,
+                       uniform_points,
+                       spatial_tree_of_uniform_points):
+
+    # Extract the polygons and plate IDs from the reconstructed static polygons.
+    static_polygons = []
+    static_polygon_plate_ids = []
+    for static_polygon_feature in static_polygon_features:
+        plate_id = static_polygon_feature.get_reconstruction_plate_id()
+        polygon = static_polygon_feature.get_geometry()
+
+        static_polygon_plate_ids.append(plate_id)
+        static_polygons.append(polygon)
+
+    print 'Find static polygons...'
+
+    # Find the reconstructed static polygon (plate IDs) containing the uniform (reconstructed) points.
+    #
+    # The order (and length) of 'recon_point_plate_ids' matches the order (and length) of 'uniform_recon_points'.
+    # Points outside all static polygons return a value of None.
+    point_plate_ids = points_in_polygons.find_polygons_using_points_spatial_tree(
+        uniform_points, spatial_tree_of_uniform_points, static_polygons, static_polygon_plate_ids)
+
+    print 'Group by polygons...'
+
+    # Group recon points with plate IDs so we can later create one multipoint per plate.
+    points_grouped_by_plate_id = {}
+    for point_index, point_plate_id in enumerate(point_plate_ids):
+        # Reject any points outside all reconstructed static polygons.
+        if point_plate_id is None:
+            continue
+
+        # Add empty list to dict if first time encountering plate ID.
+        if point_plate_id not in points_grouped_by_plate_id:
+            points_grouped_by_plate_id[point_plate_id] = []
+
+        # Add to list of points associated with plate ID.
+        point = uniform_points[point_index]
+        points_grouped_by_plate_id[point_plate_id].append(point)
+
+    # Reconstructed points.
+    recon_point_lons = []
+    recon_point_lats = []
+
+    # Present day points associated with reconstructed points.
+    point_lons = []
+    point_lats = []
+
+    # Create a multipoint feature for each plate ID and reverse-reconstruct it to get present-day points.
+    #
+    # Iterate over key/value pairs in dictionary.
+    for plate_id, points_in_plate in points_grouped_by_plate_id.iteritems():
+        # Reverse reconstructing a multipoint is much faster than individually reverse-reconstructing points.
+        multipoint_feature = pygplates.Feature()
+        multipoint_feature.set_geometry(pygplates.MultiPointOnSphere(points_in_plate))
+        multipoint_feature.set_reconstruction_plate_id(plate_id)
+
+        #Forward reconstruct multipoint to
+        multipoint_at_time = []
+        pygplates.reconstruct(multipoint_feature,rotation_model,multipoint_at_time,reconstruction_time)
+
+        # Extract reverse-reconstructed geometry.
+        multipoint = multipoint_at_time[0].get_reconstructed_geometry()
+
+        # Collect present day and associated reconstructed points.
+        for point_index, recon_point in enumerate(multipoint):
+            recon_lat, recon_lon = recon_point.to_lat_lon()
+            recon_point_lons.append(recon_lon)
+            recon_point_lats.append(recon_lat)
+
+            point = points_in_plate[point_index]
+            lat, lon = point.to_lat_lon()
+            point_lons.append(lon)
+            point_lats.append(lat)
+
+    return recon_point_lons,recon_point_lats,point_lons,point_lats
+
+
+def reconstruct_present_day_age_grid(present_day_age_grid_file, rotation_file, static_polygon_file,
+                                     reconstruction_time, present_day_age_grid_desampling_factor=1):
+    # reconstruct a present-day age grid to a selected reconstruction time - the returned
+    # points are the reconstructed grid nodes (thus not on a regular long-lat grid in
+    # reconstructed coordinates)
+
+    static_polygon_features = pygplates.FeatureCollection(static_polygon_file)
+    rotation_model = pygplates.RotationModel(rotation_file)
+    # Load the present-day age grid into memory
+    pdagX,pdagY,pdagZ = pg.load_netcdf(present_day_age_grid_file)
+
+    pdagX = pdagX[::present_day_age_grid_desampling_factor]
+    pdagY = pdagY[::present_day_age_grid_desampling_factor]
+    pdagZ = pdagZ[::present_day_age_grid_desampling_factor,::present_day_age_grid_desampling_factor]
+
+    # convert raster coordinates to a list of gplates point geometries
+    pdagXg,pdagYg = np.meshgrid(pdagX,pdagY)
+    points = [pygplates.PointOnSphere(lat, lon) for lat, lon in zip(pdagYg.flatten(),pdagXg.flatten())]
+
+    # get all ocean basin polygons, set them to be valid at all times, since
+    # we will instead use the age grid values to determine the valid time of each point
+    oceanic_polygon_features = []
+    for feature in static_polygon_features:
+        if feature.get_feature_type() == pygplates.FeatureType.gpml_basin:
+            feature.set_valid_time(99999,-99999)
+            oceanic_polygon_features.append(feature)
+
+    spatial_tree_of_uniform_recon_points = points_spatial_tree.PointsSpatialTree(points)
+
+    # reconstruct from present day to time of interest
+    (recon_point_lons,
+     recon_point_lats,
+     point_lons,
+     point_lats) = reconstruct_raster(oceanic_polygon_features,
+                                      rotation_model,
+                                      reconstruction_time,
+                                      points,
+                                      spatial_tree_of_uniform_recon_points)
+
+    # sample the present day grid at each point based on its present day coordinate
+    reconstructed_ages = sample_grid_using_gmt(np.hstack(point_lons), np.hstack(point_lats),
+                                               present_day_age_grid_file)
+    reconstructed_ages = reconstructed_ages-reconstruction_time
+    ind = np.where(reconstructed_ages>=0)[0]
+
+    # write arrays of the ages together with the reconstructed coordinates
+    return np.array(recon_point_lons)[ind], np.array(recon_point_lats)[ind], reconstructed_ages[ind]
+
+
+#################################################
+def sample_grid_using_gmt(x,y,grdfile):
+
+    dataout = np.vstack((np.asarray(x),np.asarray(y))).T
+    xyzfile = tempfile.NamedTemporaryFile()
+    #grdtrack_file = tempfile.NamedTemporaryFile()
+
+    np.savetxt(xyzfile.name,dataout)
+    # Note the -T option will find the nearest valid grid value,
+    # if the point falls on a NaN grid node
+    # adding -T+e returns the distance to the node
+    grdtrack_output = call_system_command(['gmt','grdtrack',xyzfile.name,'-G%s' % grdfile, '-nl','-V'], return_stdout=True)
+    #print grdtrack_output
+    G=[]
+    for line in grdtrack_output:
+        if line[0] == '>' or len(line) < 3:
+            continue
+        else:
+            tmp = line.split()
+            G.append(float(tmp[2]))
+
+    return np.array(G)
