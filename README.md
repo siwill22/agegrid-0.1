@@ -3,7 +3,9 @@ Development repo for auto-age-gridding workflow
 
 Repository contains a workflow to generate age grids from a topological plate reconstruction
 
-The entire workflow can be launched using the python file '05_Complete.py'
+The entire workflow can be launched using the python file '05_Complete.py', with a config file specified as an input argument, for example:
+
+    python 05_Complete.py config_M16.yml
 
 The inputs are contained in a config file <filename>.yaml, where you enter all the necessary input parameters (input file names and directories, values that define the age range, grid resolution, etc...)
 
