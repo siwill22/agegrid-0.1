@@ -7,19 +7,24 @@ The entire workflow can be launched using the python file '05_Complete.py'
 
 The inputs are contained in a config file <filename>.yaml, where you enter all the necessary input parameters (input file names and directories, values that define the age range, grid resolution, etc...)
 
-## Requirements
+## Dependencies
 
 The following python libraries are required:
 - pygplates
 - numpy
 - pandas
 - xarray
+- netcdf4
 - joblib
 - PlateTectonicsTools
+- pyyaml
+- scipy
+- scikit-image
+- matplotlib
 
 The code also calls GMT functions (blockmedian, sphinterpolate, grdmask, gmtselect, grdtrack) assuming a GMT version 5 syntax.
 
-TODO - reorganise dependencies
+The file **environment.yml** can be used to create a virtual environment that contains all these modules using conda. The one exception is PlateTectonicTools, which must be added manually. 
 
 # Workflow Structure
 
