@@ -7,6 +7,7 @@ dependencies:
   - scikit-image
   - pandas
   - xarray
+  - netcdf4
   - joblib
   - geopandas
   - healpy
