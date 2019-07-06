@@ -1,4 +1,4 @@
-# agegrid-
+# agegrid-0.1
 Development repo for auto-age-gridding workflow
 
 Repository contains a workflow to generate age grids from a topological plate reconstruction
