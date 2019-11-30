@@ -1,4 +1,6 @@
-name: agegrid
+name: agegrid2
+channels:
+  - conda-forge
 dependencies:
   - python=2
   - numpy
@@ -13,5 +15,9 @@ dependencies:
   - healpy
   - pyyaml
   - gmt
+  - geopandas
+  - cartopy
+  - requests
+  - ipykernel
 
 
