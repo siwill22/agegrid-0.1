@@ -28,7 +28,8 @@ The following python libraries are required:
 
 The code also calls GMT functions (blockmedian, sphinterpolate, grdmask, gmtselect, grdtrack) assuming a GMT version 5 syntax.
 
-The file **environment.yml** can be used to create a virtual environment that contains all these modules using conda. The one exception is PlateTectonicTools, which must be added manually. 
+The file **environment.yml** can be used to create a virtual environment that contains all these modules using conda. The exceptions are pygplates and PlateTectonicTools, which must be added manually. 
+
 
 # Workflow Structure
 
