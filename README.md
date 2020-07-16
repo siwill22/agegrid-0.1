@@ -9,7 +9,7 @@ Repository contains a workflow to generate age grids from a topological plate re
 
 The entire workflow can be launched using the python file '05_Complete.py', with a config file specified as an input argument, for example:
 
-    python 05_Complete.py config_M16.yml
+    python run_paleo_age_grids.py my_config_file.yml
 
 The inputs are contained in a config file <filename>.yaml, where you enter all the necessary input parameters (input file names and directories, values that define the age range, grid resolution, etc...)
 
