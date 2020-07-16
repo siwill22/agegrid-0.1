@@ -3,7 +3,9 @@ Development repo for auto-age-gridding workflow
 
 [![DOI](https://zenodo.org/badge/195191696.svg)](https://zenodo.org/badge/latestdoi/195191696)
 
-Repository contains a workflow to generate age grids from a topological plate reconstruction
+Repository contains a workflow to generate age grids from a topological plate reconstruction. The end-product looks like this:
+
+![PaleoAgeGridAnimation](https://github.com/siwill22/agegrid-0.1/blob/master/images/AgeGridAnimation.gif)
 
 The entire workflow can be launched using the python file '05_Complete.py', with a config file specified as an input argument, for example:
 
