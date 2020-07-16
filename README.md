@@ -3,7 +3,7 @@ Development repo for auto-age-gridding workflow
 
 [![DOI](https://zenodo.org/badge/195191696.svg)](https://zenodo.org/badge/latestdoi/195191696)
 
-Repository contains a workflow to generate age grids from a topological plate reconstruction. The end-product looks like this:
+Repository contains a workflow to generate grids of seafloor age from a topological plate reconstruction. The end-product looks like this:
 
 ![PaleoAgeGridAnimation](https://github.com/siwill22/agegrid-0.1/blob/master/images/AgeGridAnimation.gif)
 
