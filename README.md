@@ -35,6 +35,7 @@ The file **environment.yml** can be used to create a virtual environment that co
 ## Further Reading
 
 A paper describing some charateristics of seafloor age distributions from published full-plate reconstructions can be found here:
+
 Reconstructing seafloor age distributions in lost ocean basins: Simon Williams, Nicky M. Wright, John Cannon, Nicolas Flament, R. Dietmar Müller, *Geoscience Frontiers* (in press)
 
 https://www-sciencedirect-com.ezproxy2.library.usyd.edu.au/science/article/pii/S1674987120301432
