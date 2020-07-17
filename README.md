@@ -32,6 +32,26 @@ The code also calls GMT functions (blockmedian, sphinterpolate, grdmask, gmtsele
 
 The file **environment.yml** can be used to create a virtual environment that contains all these modules using conda. The exceptions are pygplates and PlateTectonicTools, which must be added manually. 
 
+## Further Reading
+
+A paper describing some charateristics of seafloor age distributions from published full-plate reconstructions can be found here:
+Reconstructing seafloor age distributions in lost ocean basins: Simon Williams, Nicky M. Wright, John Cannon, Nicolas Flament, R. Dietmar Müller, *Geoscience Frontiers* (in press)
+
+https://www-sciencedirect-com.ezproxy2.library.usyd.edu.au/science/article/pii/S1674987120301432
+
+## Similar Work
+
+Two relevant sets of code that overlap with this toolbox (both also in python):
+
+Merdith, A.S. et al., (2019) Tectonic controls on carbon and serpentinite storage in subducted upper oceanic lithosphere for the past 320 Ma. *Frontiers: Earth Science*
+
+https://github.com/amer7632/pyGPlates_examples/tree/master/Merdith_2019_Frontiers
+
+Karlsen, K.S. et al., (2020) A tracer-based algorithm for automatic generation of seafloor age grids from plate tectonic reconstructions, *Computers and Geosciences*
+
+https://zenodo.org/record/3687548#.XxGL3pMzaXh
+
+---
 
 # Workflow Structure
 
