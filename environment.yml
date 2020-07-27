@@ -18,6 +18,7 @@ dependencies:
   - geopandas
   - requests
   - ipykernel
+  - astropy-healpix
   - pip
   - pip:
     - PlateTectonicTools
