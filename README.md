@@ -38,7 +38,7 @@ A paper describing some charateristics of seafloor age distributions from publis
 
 Reconstructing seafloor age distributions in lost ocean basins: Simon Williams, Nicky M. Wright, John Cannon, Nicolas Flament, R. Dietmar Müller, *Geoscience Frontiers* (in press)
 
-https://www-sciencedirect-com.ezproxy2.library.usyd.edu.au/science/article/pii/S1674987120301432
+https://doi.org/10.1016/j.gsf.2020.06.004
 
 ## Similar Work
 
