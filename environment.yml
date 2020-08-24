@@ -1,8 +1,8 @@
-name: agegrid2
+name: agegrid3
 channels:
   - conda-forge
 dependencies:
-  - python=2
+  - python=3
   - numpy
   - matplotlib
   - scipy
@@ -16,8 +16,9 @@ dependencies:
   - pyyaml
   - gmt
   - geopandas
-  - cartopy
   - requests
   - ipykernel
-
-
+  - astropy-healpix
+  - pip
+  - pip:
+    - PlateTectonicTools
