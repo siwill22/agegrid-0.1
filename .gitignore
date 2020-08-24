@@ -10,3 +10,4 @@ input_files/Young++2018/.DS_Store
 gprm/.ipynb_checkpoints/*
 *.history
 grid_files/*
+/upload/*
