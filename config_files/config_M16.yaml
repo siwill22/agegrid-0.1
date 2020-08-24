@@ -1,0 +1,53 @@
+#####################################
+InputFiles:
+    MODELDIR: './input_files/Matthews++2016/'
+    input_rotation_filenames:
+        - 'Matthews_etal_GPC_2016_410-0Ma_GK07.rot'
+    topology_features:
+        - 'Matthews_etal_GPC_2016_MesozoicCenozoic_PlateTopologies.gpml'
+        - 'Matthews_etal_GPC_2016_Paleozoic_PlateTopologies.gpml'
+        - 'Matthews_etal_GPC_2016_TopologyBuildingBlocks.gpml'
+
+    COBterrane_file: 'Global_EarthByte_GeeK07_COB_Terranes_Matthews_etal.gpml'
+
+    present_day_age_grid_file: None
+    static_polygon_file: None
+
+# name of output directories
+OutputFiles:
+    seedpoints_output_dir: "./seed_point_files/"
+    grd_output_dir: "./grid_files/"
+    #grd_output_dir: './velocity_scaling/test/'
+    output_gridfile_template: 'M16_seafloor_age_'
+
+TimeParameters:
+# --- set parameters
+    min_time: 0.
+    max_time: 410.
+    mor_time_step: 5.
+    gridding_time_step: 5.
+
+# Distance in arc-degrees along ridges at which to tessellate lines to
+# create seed points
+# BUT: does not desample the points where the original line geometries
+# are already closer than the specified distance
+SpatialParameters:
+    ridge_sampling: 2.0
+    initial_ocean_healpix_sampling: 16
+    initial_ocean_mean_spreading_rate: 75.
+
+    # used to remove small polygons in the masking. Units are area on unit sphere
+    area_threshold: 0.0001
+
+    seed_age_offset: 0.0
+
+    # Control the gridding extent and resolution parameters passed to GMT
+    grdspace: 0.25
+    xmin: -180.
+    xmax: 180.
+    ymin: -90.
+    ymax: 90.
+
+    grid_masking: True
+
+num_cpus: 4

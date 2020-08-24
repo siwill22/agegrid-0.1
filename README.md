@@ -3,13 +3,13 @@ Development repo for auto-age-gridding workflow
 
 [![DOI](https://zenodo.org/badge/195191696.svg)](https://zenodo.org/badge/latestdoi/195191696)
 
-Repository contains a workflow to generate age grids from a topological plate reconstruction. The end-product looks like this:
+Repository contains a workflow to generate grids of seafloor age from a topological plate reconstruction. The end-product looks like this:
 
 ![PaleoAgeGridAnimation](https://github.com/siwill22/agegrid-0.1/blob/master/images/AgeGridAnimation.gif)
 
 The entire workflow can be launched using the python file '05_Complete.py', with a config file specified as an input argument, for example:
 
-    python 05_Complete.py config_M16.yml
+    python run_paleo_age_grids.py my_config_file.yml
 
 The inputs are contained in a config file <filename>.yaml, where you enter all the necessary input parameters (input file names and directories, values that define the age range, grid resolution, etc...)
 
