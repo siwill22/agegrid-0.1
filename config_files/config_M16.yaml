@@ -4,15 +4,13 @@ InputFiles:
     input_rotation_filenames:
         - 'Matthews_etal_GPC_2016_410-0Ma_GK07.rot'
     topology_features:
-        - 'Matthews_etal_GPC_2016_MesozoicCenozoic_PlateTopologies.gpml'
-        - 'Matthews_etal_GPC_2016_Paleozoic_PlateTopologies.gpml'
-        - 'Matthews_etal_GPC_2016_TopologyBuildingBlocks.gpml'
+        - 'Matthews_etal_GPC_2016_MesozoicCenozoic_PlateTopologies.gpmlz'
+        - 'Matthews_etal_GPC_2016_Paleozoic_PlateTopologies.gpmlz'
 
     COBterrane_file: 'Global_EarthByte_GeeK07_COB_Terranes_Matthews_etal_MOD.gpml'
 
 # name of output directories
 OutputFiles:
-    seedpoints_output_dir: "./seed_point_files/"
     grd_output_dir: "./grid_files/"
     output_gridfile_template: 'M16_seafloor_age_'
 

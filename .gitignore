@@ -12,3 +12,4 @@ gprm/.ipynb_checkpoints
 grid_files/*
 upload/*
 gmt.history
+.ipynb_checkpoints/plot_seafloor_age-checkpoint.py

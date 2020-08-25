@@ -13,7 +13,6 @@ InputFiles:
 
 # name of output directories
 OutputFiles:
-    seedpoints_output_dir: "./seed_point_files/"
     grd_output_dir: './grid_files'
     output_gridfile_template: 'Y19_seafloor_age_'
 
