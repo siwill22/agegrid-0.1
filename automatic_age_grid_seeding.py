@@ -71,7 +71,6 @@ def get_input_parameters(config_file):
                                              params['InputFiles']['COBterrane_file'])
 
         # name of output directories
-        seedpoints_output_dir = params['OutputFiles']['seedpoints_output_dir']
         grd_output_dir = params['OutputFiles']['grd_output_dir']
         output_gridfile_template = params['OutputFiles']['output_gridfile_template']
 
@@ -105,7 +104,7 @@ def get_input_parameters(config_file):
         num_cpus = params['num_cpus']
 
     return (input_rotation_filenames, topology_features, COBterrane_file,
-            seedpoints_output_dir, grd_output_dir, output_gridfile_template,
+            grd_output_dir, output_gridfile_template,
             min_time, max_time, mor_time_step, gridding_time_step, ridge_sampling,
             initial_ocean_healpix_sampling, initial_ocean_mean_spreading_rate, area_threshold,
             grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus)
@@ -414,7 +413,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
 
         curr_points = topology_reconstruction.get_active_current_points()
 
-        print(len(cp),len(prev_lat))
+        #print(len(cp),len(prev_lat))
 
         curr_lat_lon_points = [point.to_lat_lon() for point in curr_points]
         if curr_lat_lon_points:

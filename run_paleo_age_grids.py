@@ -30,7 +30,7 @@ config_file = sys.argv[1]
 
 
 (input_rotation_filenames, topology_features, COBterrane_file,
- seedpoints_output_dir, grd_output_dir, output_gridfile_template,
+ grd_output_dir, output_gridfile_template,
  min_time, max_time, mor_time_step, gridding_time_step, ridge_sampling,
  initial_ocean_healpix_sampling, initial_ocean_mean_spreading_rate, area_threshold,
  grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus) = aags.get_input_parameters(config_file)
