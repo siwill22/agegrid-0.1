@@ -15,3 +15,5 @@ gmt.history
 .ipynb_checkpoints/plot_seafloor_age-checkpoint.py
 images/*.png
 images/*.mp4
+images/M16_seafloor_age_animation.gif
+images/Y19_seafloor_age_animation.gif
