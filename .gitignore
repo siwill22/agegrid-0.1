@@ -13,3 +13,5 @@ grid_files/*
 upload/*
 gmt.history
 .ipynb_checkpoints/plot_seafloor_age-checkpoint.py
+images/*.png
+images/*.mp4
