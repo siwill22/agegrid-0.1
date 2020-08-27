@@ -13,6 +13,14 @@ The entire workflow can be launched using the python file '05_Complete.py', with
 
 The inputs are contained in a config file <filename>.yaml, where you enter all the necessary input parameters (input file names and directories, values that define the age range, grid resolution, etc...)
 
+## Sample Results
+
+A range of results are available on the Earthbyte website, including: 
+- grid files from 410 Ma to present in 1 Myr increments
+- animations in gif and mp4 format
+
+https://www.earthbyte.org/webdav/ftp/Data_Collections/Williams_etal_2020_GSF/
+
 ## Dependencies
 
 The following python libraries are required:
