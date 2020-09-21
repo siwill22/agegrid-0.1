@@ -19,3 +19,5 @@ images/M16_seafloor_age_animation.gif
 images/Y19_seafloor_age_animation.gif
 tmp.gmt
 tmp.xy
+gmt.conf
+tmp/*
