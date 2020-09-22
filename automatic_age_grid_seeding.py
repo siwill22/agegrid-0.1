@@ -71,6 +71,7 @@ def get_input_parameters(config_file):
                                              params['InputFiles']['COBterrane_file'])
 
         # name of output directories
+        seedpoints_output_dir = params['OutputFiles']['seedpoints_output_dir']
         grd_output_dir = params['OutputFiles']['grd_output_dir']
         output_gridfile_template = params['OutputFiles']['output_gridfile_template']
 
@@ -104,7 +105,7 @@ def get_input_parameters(config_file):
         num_cpus = params['num_cpus']
 
     return (input_rotation_filenames, topology_features, COBterrane_file,
-            grd_output_dir, output_gridfile_template,
+            seedpoints_output_dir, grd_output_dir, output_gridfile_template,
             min_time, max_time, mor_time_step, gridding_time_step, ridge_sampling,
             initial_ocean_healpix_sampling, initial_ocean_mean_spreading_rate, area_threshold,
             grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus)
@@ -413,7 +414,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
 
         curr_points = topology_reconstruction.get_active_current_points()
 
-        #print(len(cp),len(prev_lat))
+        print(len(cp),len(prev_lat))
 
         curr_lat_lon_points = [point.to_lat_lon() for point in curr_points]
         if curr_lat_lon_points:
@@ -462,7 +463,8 @@ def make_grid_for_reconstruction_time(raw_point_file, age_grid_time, grdspace, r
     # given a set of reconstructed points with ages, makes a global grid using
     # blockmedian and sphinterpolate
 
-    block_median_points = tempfile.NamedTemporaryFile()
+    block_median_points = tempfile.NamedTemporaryFile(delete=False)
+    block_median_points.close()  # Cannot open twice on Windows - close before opening again.
 
     call_system_command(['gmt',
                          'blockmedian',
@@ -482,8 +484,7 @@ def make_grid_for_reconstruction_time(raw_point_file, age_grid_time, grdspace, r
                          '-R{0}'.format(region),
                          '-V'])
 
-    block_median_points.delete
-
+    os.unlink(block_median_points.name)  # Remove temp file (because we set 'delete=False').
 
 def write_synthetic_points(all_longitudes, all_latitudes, all_birth_ages, all_reconstruction_ages,
                            reconstruction_time, raw_point_file):
@@ -511,9 +512,14 @@ def mask_synthetic_points(reconstructed_present_day_lons, reconstructed_present_
     # --> apply the mask to remove the overlapping points
     # --> concatentate the remaining synthetic points with the reconstructed present-day age grid points
 
-    reconstructed_present_day_age_file = tempfile.NamedTemporaryFile()
-    synthetic_age_masked_file = tempfile.NamedTemporaryFile()
-    masking_grid_file = tempfile.NamedTemporaryFile()
+    reconstructed_present_day_age_file = tempfile.NamedTemporaryFile(delete=False)
+    synthetic_age_masked_file = tempfile.NamedTemporaryFile(delete=False)
+    masking_grid_file = tempfile.NamedTemporaryFile(delete=False)
+
+    # Cannot open twice on Windows - close before opening again.
+    reconstructed_present_day_age_file.close()
+    synthetic_age_masked_file.close()
+    masking_grid_file.close()
 
     write_xyz_file(reconstructed_present_day_age_file.name, zip(reconstructed_present_day_lons,
                                                                 reconstructed_present_day_lats,
@@ -543,9 +549,10 @@ def mask_synthetic_points(reconstructed_present_day_lons, reconstructed_present_
                 for line in infile:
                     outfile.write(line)
 
-    reconstructed_present_day_age_file.delete
-    synthetic_age_masked_file.delete
-    masking_grid_file.delete
+    # Remove temp file (because we set 'delete=False').
+    os.unlink(reconstructed_present_day_age_file.name)
+    os.unlink(synthetic_age_masked_file.name)
+    os.unlink(masking_grid_file.name)
 
 
 def make_masking_grids(COBterrane_file, input_rotation_filenames, max_time, min_time, time_step,

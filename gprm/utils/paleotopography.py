@@ -311,10 +311,16 @@ def paleotopography_job(reconstruction_time, paleogeography_timeslice_list,
     #####################################
     
     # write the land/marine points to a file
-    land_marine_xyz_file = tempfile.NamedTemporaryFile()
-    mountain_xyz_file = tempfile.NamedTemporaryFile()
-    land_marine_nc_file = tempfile.NamedTemporaryFile()
-    mountain_nc_file = tempfile.NamedTemporaryFile()
+    land_marine_xyz_file = tempfile.NamedTemporaryFile(delete=False)
+    mountain_xyz_file = tempfile.NamedTemporaryFile(delete=False)
+    land_marine_nc_file = tempfile.NamedTemporaryFile(delete=False)
+    mountain_nc_file = tempfile.NamedTemporaryFile(delete=False)
+
+    # Cannot open twice on Windows - close before opening again.
+    land_marine_xyz_file.close()
+    mountain_xyz_file.close()
+    land_marine_nc_file.close()
+    mountain_nc_file.close()
     
     write_xyz_file(land_marine_xyz_file.name, zip(lon+lon_deep,
                                                   lat+lat_deep,
@@ -338,11 +344,11 @@ def paleotopography_job(reconstruction_time, paleogeography_timeslice_list,
     call_system_command(['gmt', 'grdmath', mountain_nc_file.name, land_marine_nc_file.name, 'ADD', '=', 
                          '%s/paleotopo_%0.2fd_%0.2fMa.nc' % (output_dir, sampling, reconstruction_time)])
 
-    # clean-up temp files
-    land_marine_xyz_file.delete
-    mountain_xyz_file.delete
-    land_marine_nc_file.delete
-    mountain_nc_file.delete
+    # Remove temp file (because we set 'delete=False').
+    os.unlink(land_marine_xyz_file.name)
+    os.unlink(mountain_xyz_file.name)
+    os.unlink(land_marine_nc_file.name)
+    os.unlink(mountain_nc_file.name)
     
     # load result back into python
     topoX,topoY,topoZ = load_netcdf('%s/paleotopo_%0.2fd_%0.2fMa.nc' % (output_dir, sampling, reconstruction_time))
@@ -376,8 +382,12 @@ def paleotopography_job(reconstruction_time, paleogeography_timeslice_list,
         plt.imshow(not_bathy_index)
         plt.show()
 
-        paleotopobathy_nc_file = tempfile.NamedTemporaryFile()
-        paleotopobathy_smooth_nc_file = tempfile.NamedTemporaryFile()
+        paleotopobathy_nc_file = tempfile.NamedTemporaryFile(delete=False)
+        paleotopobathy_smooth_nc_file = tempfile.NamedTemporaryFile(delete=False)
+
+        # Cannot open twice on Windows - close before opening again.
+        paleotopobathy_nc_file.close()
+        paleotopobathy_smooth_nc_file.close()
         
         # save the merged grid (forcing compatibility with GPlates-readable netCDF in case it helps)
         ds = xr.DataArray(paleodepth,
@@ -424,5 +434,6 @@ def paleotopography_job(reconstruction_time, paleogeography_timeslice_list,
                                                                      reconstruction_time))
         plt.close()
 
-        paleotopobathy_nc_file.delete
-        paleotopobathy_smooth_nc_file.delete
+        # Remove temp file (because we set 'delete=False').
+        os.unlink(paleotopobathy_nc_file.name)
+        os.unlink(paleotopobathy_smooth_nc_file.name)

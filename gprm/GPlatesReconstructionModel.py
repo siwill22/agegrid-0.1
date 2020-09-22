@@ -1171,8 +1171,13 @@ class GPlatesRaster(object):
     def sample_using_gmt(self, point_lons, point_lats, extrapolate=False):
 
         dataout = np.vstack((np.asarray(point_lons),np.asarray(point_lats))).T
-        xyzfile = tempfile.NamedTemporaryFile()
-        grdtrack_file = tempfile.NamedTemporaryFile()
+
+        xyzfile = tempfile.NamedTemporaryFile(delete=False)
+        grdtrack_file = tempfile.NamedTemporaryFile(delete=False)
+
+        # Cannot open twice on Windows - close before opening again.
+        xyzfile.close()
+        grdtrack_file.close()
 
         np.savetxt(xyzfile.name,dataout)
         # Note the a -T option would find the nearest valid grid value,
@@ -1192,6 +1197,11 @@ class GPlatesRaster(object):
                     G.append(float(tmp[2]))
 
         f.close()
+
+        # Remove temp file (because we set 'delete=False').
+        os.unlink(xyzfile.name)
+        os.unlink(grdtrack_file.name)
+
         return np.array(G)
 
     def sample_using_stripy(self, point_lons, point_lats, order=0):
@@ -1333,7 +1343,8 @@ class gmt_reconstruction(object):
             if not self.reconstruction_model.continent_polygons:
                 warnings.warn('no continent polygons available for selected reconstruction model')
             else:
-                output_reconstructed_continents_filename = tempfile.NamedTemporaryFile(suffix='.gmt').name
+                output_reconstructed_continents_filename = tempfile.NamedTemporaryFile(suffix='.gmt', delete=False).name
+                output_reconstructed_continents_filename.close()  # Cannot open twice on Windows - close before opening again.
                 pygplates.reconstruct(self.reconstruction_model.continent_polygons,
                                     self.reconstruction_model.rotation_model,
                                     output_reconstructed_continents_filename,
@@ -1343,12 +1354,14 @@ class gmt_reconstruction(object):
                                     '-G{:s}'.format(layer_colors['continent_fill']), 
                                     output_reconstructed_continents_filename,
                                     '-O', '-K', '-N', '>>', outfile])
+                os.unlink(output_reconstructed_continents_filename.name)  # Remove temp file (because we set 'delete=False').
 
         if 'coastlines' in layers:
             if not self.reconstruction_model.coastlines:
                 warnings.warn('no coastline polygons available for selected reconstruction model')
             else:
-                output_reconstructed_coastlines_filename = tempfile.NamedTemporaryFile(suffix='.gmt').name
+                output_reconstructed_coastlines_filename = tempfile.NamedTemporaryFile(suffix='.gmt', delete=False).name
+                output_reconstructed_coastlines_filename.close()  # Cannot open twice on Windows - close before opening again.
                 pygplates.reconstruct(self.reconstruction_model.coastlines,
                                     self.reconstruction_model.rotation_model,
                                     output_reconstructed_coastlines_filename,
@@ -1357,6 +1370,7 @@ class gmt_reconstruction(object):
                                     '-W0.2p,{:s}'.format(layer_colors['coastline_outline']), 
                                     '-G{:s}'.format(layer_colors['coastline_fill']),
                                     '-O', '-K', output_reconstructed_coastlines_filename, '-V', '>>', outfile])
+                os.unlink(output_reconstructed_coastlines_filename.name)  # Remove temp file (because we set 'delete=False').
 
         if 'dynamic_polygons' in layers:
             if not self.reconstruction_model.dynamic_polygons:
