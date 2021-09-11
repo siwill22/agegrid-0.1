@@ -20,7 +20,8 @@ import pygplates
 import numpy as np
 import pandas as pd
 import os
-import multiprocessing
+import shutil
+#import multiprocessing
 import glob
 from ptt.utils.call_system_command import call_system_command
 import xarray as xr
@@ -28,15 +29,15 @@ from joblib import Parallel, delayed
 import tempfile
 import yaml
 
-import gprm.utils.points_spatial_tree as points_spatial_tree
-import gprm.utils.points_in_polygons as points_in_polygons
+import ptt.utils.points_spatial_tree as points_spatial_tree
+import ptt.utils.points_in_polygons as points_in_polygons
 
 import gprm.utils.paleogeography as pg
 #import gprm.utils.paleotopography as pt
 from gprm.utils.spatial import rasterise_polygons, get_merged_cob_terrane_polygons, get_merged_cob_terrane_raster
-from gprm.utils.fileio import load_netcdf, write_netcdf_grid
+from gprm.utils.fileio import load_netcdf, write_netcdf_grid, write_xyz_file
 
-import reconstruct_by_topologies as rbt
+#import reconstruct_by_topologies as rbt
 
 #import reconstruct_by_topologies_VS as rbt
 #print 'USING SCALED VELOCITIES....'
@@ -71,7 +72,7 @@ def get_input_parameters(config_file):
                                              params['InputFiles']['COBterrane_file'])
 
         # name of output directories
-        seedpoints_output_dir = params['OutputFiles']['seedpoints_output_dir']
+        #seedpoints_output_dir = params['OutputFiles']['seedpoints_output_dir']
         grd_output_dir = params['OutputFiles']['grd_output_dir']
         output_gridfile_template = params['OutputFiles']['output_gridfile_template']
 
@@ -105,7 +106,7 @@ def get_input_parameters(config_file):
         num_cpus = params['num_cpus']
 
     return (input_rotation_filenames, topology_features, COBterrane_file,
-            seedpoints_output_dir, grd_output_dir, output_gridfile_template,
+            grd_output_dir, output_gridfile_template,
             min_time, max_time, mor_time_step, gridding_time_step, ridge_sampling,
             initial_ocean_healpix_sampling, initial_ocean_mean_spreading_rate, area_threshold,
             grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus)
@@ -113,7 +114,7 @@ def get_input_parameters(config_file):
 
 
 ###########################################################
-def get_mid_ocean_ridges(shared_boundary_sections,rotation_model,reconstruction_time,time_step,sampling=2.0):
+def get_mid_ocean_ridges(shared_boundary_sections,rotation_model,reconstruction_time,sampling=2.0):
     """ Get tessellated points along a mid ocean ridge"""
 
     shifted_mor_points = []
@@ -183,9 +184,9 @@ def get_isochrons_for_ridge_snapshot(topology_features,
     pygplates.resolve_topologies(topology_features, rotation_filename, resolved_topologies, oldest_seed_time, shared_boundary_sections)
 
     # Previous points are on the MOR, current are moved by one time step off MOR.
-    curr_points = get_mid_ocean_ridges(shared_boundary_sections, rotation_model, oldest_seed_time, time_step, ridge_sampling)
+    curr_points = get_mid_ocean_ridges(shared_boundary_sections, rotation_model, oldest_seed_time, ridge_sampling)
 
-    # Write out the ridge point born at 'ridge_time' but their position at 'ridge_time - time_step'.
+    # Write out the ridge points born at 'ridge_time' but their position shifted by a small amount to allow cookie-cutting'.
     mor_point_features = []
     for curr_point in curr_points:
         feature = pygplates.Feature()
@@ -252,12 +253,6 @@ def merge_features(young_time, old_time, time_step, outdir, cleanup=False):
             os.remove(f)
         for f in glob.glob("{:s}/MOR_plus_one_points_*.gmt.gplates.xml".format(outdir)):
             os.remove(f)
-
-
-def write_xyz_file(output_filename, output_data):
-    with open(output_filename, 'w') as output_file:
-        for output_line in output_data:
-            output_file.write(' '.join(str(item) for item in output_line) + '\n')
 
 
 def get_initial_ocean_seeds(topology_features, input_rotation_filenames, COBterrane_file, output_directory,
@@ -337,53 +332,109 @@ def get_isochrons_from_topologies(topology_features, input_rotation_filenames, o
     print('done')
 
 
+
+##################################################################################################
+# Functions added for pygplates revision32 mods
+def merge_file_list(outfile, filelist):
+    with open(outfile,'wb') as wfd:
+        for f in filelist:
+            if os.path.isfile(f):
+                with open(f,'rb') as fd:
+                    shutil.copyfileobj(fd, wfd)
+      
+      
+def merge_output_files(max_time, min_time, time_step, grd_output_dir, cleanup=True): 
+    
+    for export_time in np.arange(max_time,min_time-time_step,-time_step):
+
+        filelist = ['{:s}/gridding_input/gridding_input_{:0.1f}Ma_{:0.1f}Ma.xy'.format(grd_output_dir, birth_time, export_time) for birth_time in np.arange(max_time, export_time-time_step, -time_step)]
+        filelist.extend(['{:s}/gridding_input/gridding_input_IC_{:0.1f}Ma.xy'.format(grd_output_dir, export_time)])
+
+        merge_file_list('{:s}/gridding_input/gridding_input_{:0.1f}Ma.xy'.format(grd_output_dir, export_time), filelist)
+
+        if cleanup:
+            for f in filelist:
+                if os.path.isfile(f):
+                    os.remove(f)
+
+
+def reconstruct_seed_file_time_span(filename, outfile_stem, id_start, 
+                                    topological_model, initial_time, 
+                                    youngest_time=0., time_step=1.):
+
+    print('Working on file {:s}...'.format(filename))
+    seeds = pygplates.FeatureCollection(filename)
+
+    points = [feature.get_geometry().to_lat_lon() for feature in seeds]
+    point_begin_times = [feature.get_valid_time()[0] for feature in seeds]
+    point_ids = list(range(id_start, id_start+len(points)))
+
+    time_spans = topological_model.reconstruct_geometry(points, 
+                                                        initial_time, 
+                                                        oldest_time=initial_time, 
+                                                        youngest_time=0., 
+                                                        time_increment=time_step)
+
+    for export_time in np.arange(initial_time,
+                                 youngest_time-time_step,
+                                 -time_step):
+
+        reconstructed_points = time_spans.get_geometry_points(export_time, return_inactive_points=True)
+
+        if reconstructed_points:
+            output_tuples = ([(reconstructed_point.to_lat_lon()[1],
+                               reconstructed_point.to_lat_lon()[0],
+                               point_begin_time-export_time,
+                               point_id) for (reconstructed_point, point_begin_time, point_id) in zip(reconstructed_points, 
+                                                                                                      point_begin_times,
+                                                                                                      point_ids) if reconstructed_point is not None])
+            
+        else:
+            # break out of loop since all points have been deactivated
+            break
+
+        write_xyz_file('{:s}{:0.1f}Ma.xy'.format(outfile_stem, export_time), output_tuples)
+
+    id_start += len(points)+1
+
+    return id_start
+
+
 def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
                       mor_seedpoint_filename, initial_ocean_seedpoint_filename,
                       max_time, min_time, time_step, grd_output_dir,
+                      anchor_plate_id=0,
                       subduction_collision_parameters=(5.0, 10.0), 
                       continent_mask_file_pattern=None):
     # reconstruct the seed points using the reconstruct_by_topologies function
     # returns the result either as lists or dumps to an ascii file
 
-    rotation_model = pygplates.RotationModel(input_rotation_filenames)
+    #rotation_model = pygplates.RotationModel(input_rotation_filenames)
+
+    topological_model = pygplates.TopologicalModel(topology_features,
+                                                   input_rotation_filenames,
+                                                   anchor_plate_id=anchor_plate_id)
 
     print('Begin assembling seed points and reconstructing by topologies....')
 
-    # load features to reconstruct
-    cp = []  # current_point # TODO more verbose names for cp and at
-    at = []  # appearance_time
-    birth_lat = []  # latitude_of_crust_formation
-    prev_lat = []
-    prev_lon = []
+    #IC_file = '/Users/simon/GIT/agegrid-0.1/grid_files/seedpoints/age_from_distance_to_mor_410.00Ma.gmt'
+    #seed_file_template = '/Users/simon/GIT/agegrid-0.1/grid_files/seedpoints/MOR_plus_one_points_{:0.2f}.gmt'
 
-    seeds_at_start_time = pygplates.FeatureCollection(initial_ocean_seedpoint_filename)
-    for feature in seeds_at_start_time:
-        cp.append(feature.get_geometry())
-        at.append(feature.get_valid_time()[0])
-        birth_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])  # Why use a list here??
-        prev_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
-        prev_lon.append(feature.get_geometry().to_lat_lon_list()[0][1])
+    id_start = 0
 
-    #seeds_from_topologies = pygplates.FeatureCollection(mor_seedpoint_filename)
-    seeds_from_topologies = []
+    id_start = reconstruct_seed_file_time_span(initial_ocean_seedpoint_filename, 
+                                               '{:s}/gridding_input/gridding_input_IC_'.format(grd_output_dir),
+                                               id_start, topological_model, max_time, time_step=time_step)
 
-    for time in np.arange(max_time, min_time-time_step, -time_step):
-        filename = './{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, time)
-        print('merging seeds from file {:s}'.format(filename))
-        features = pygplates.FeatureCollection(filename)
-        for feature in features:
-            seeds_from_topologies.append(feature)
+    for birth_time in np.arange(max_time,min_time,-time_step):
+    
+        id_start = reconstruct_seed_file_time_span('{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, birth_time),
+                                                   '{:s}/gridding_input/gridding_input_{:0.1f}Ma_'.format(grd_output_dir, birth_time), 
+                                                   id_start, topological_model, birth_time, time_step=time_step)
 
-    for feature in seeds_from_topologies:
-        if feature.get_valid_time()[0]<max_time:
-            cp.append(feature.get_geometry())
-            at.append(feature.get_valid_time()[0])
-            birth_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
-            prev_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
-            prev_lon.append(feature.get_geometry().to_lat_lon_list()[0][1])
-
-    point_id = range(len(cp))
-
+    merge_output_files(max_time, min_time, time_step, grd_output_dir)
+    
+    '''
     # specify the collision detection
     default_collision = rbt.DefaultCollision(feature_specific_collision_parameters = [(pygplates.FeatureType.gpml_subduction_zone, 
                                                                                        subduction_collision_parameters)])
@@ -394,62 +445,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
                                                 default_collision)
     else:
         collision_spec = default_collision
-
-    print('preparing reconstruction by topologies....')
-    topology_reconstruction = rbt.ReconstructByTopologies(
-            rotation_model, topology_features,
-            max_time, min_time, time_step,
-            cp, point_begin_times=at,
-            detect_collisions = collision_spec)
-
-
-    # Initialise the reconstruction.
-    topology_reconstruction.begin_reconstruction()
-
-    # Loop over the reconstruction times until reached end of the reconstruction time span, or
-    # all points have entered their valid time range *and* either exited their time range or
-    # have been deactivated (subducted forward in time or consumed by MOR backward in time).
-    while True:
-        print('reconstruct by topologies: working on time {:0.2f} Ma'.format(topology_reconstruction.get_current_time()))
-
-        curr_points = topology_reconstruction.get_active_current_points()
-
-        print(len(cp),len(prev_lat))
-
-        curr_lat_lon_points = [point.to_lat_lon() for point in curr_points]
-        if curr_lat_lon_points:
-            curr_latitudes, curr_longitudes = zip(*curr_lat_lon_points)
-
-
-            seafloor_age = []
-            birth_lat_snapshot = []
-            point_id_snapshot = []
-            prev_lat_snapshot = []
-            prev_lon_snapshot = []
-            for point_index,current_point in enumerate(topology_reconstruction.get_all_current_points()):
-                if current_point is not None:
-                    #all_birth_ages.append(at[point_index])
-                    seafloor_age.append(at[point_index] - topology_reconstruction.get_current_time())
-                    birth_lat_snapshot.append(birth_lat[point_index])
-                    point_id_snapshot.append(point_id[point_index])
-                    prev_lat_snapshot.append(prev_lat[point_index])
-                    prev_lon_snapshot.append(prev_lon[point_index])
-                    
-                    prev_lat[point_index] = current_point.to_lat_lon()[0]
-                    prev_lon[point_index] = current_point.to_lat_lon()[1]
-
-
-            write_xyz_file('{:s}/gridding_input/gridding_input_{:0.1f}Ma.xy'.format(grd_output_dir,
-                                                                     topology_reconstruction.get_current_time()),
-                           zip(curr_longitudes,
-                           curr_latitudes,
-                           seafloor_age,
-                           birth_lat_snapshot,
-                           point_id_snapshot))
-
-
-        if not topology_reconstruction.reconstruct_to_next_time():
-            break
+    '''
 
     print('done')
     return
@@ -485,6 +481,7 @@ def make_grid_for_reconstruction_time(raw_point_file, age_grid_time, grdspace, r
                          '-V'])
 
     os.unlink(block_median_points.name)  # Remove temp file (because we set 'delete=False').
+
 
 def write_synthetic_points(all_longitudes, all_latitudes, all_birth_ages, all_reconstruction_ages,
                            reconstruction_time, raw_point_file):
