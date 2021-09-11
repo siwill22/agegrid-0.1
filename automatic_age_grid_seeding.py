@@ -361,20 +361,43 @@ def merge_output_files(max_time, min_time, time_step, grd_output_dir, cleanup=Tr
 def reconstruct_seed_file_time_span(filename, outfile_stem, id_start, 
                                     topological_model, initial_time, 
                                     youngest_time=0., time_step=1.):
+    """
+    function to reconstruct a single file of seed points (all with their geometries
+    defined at the same appearance time) through a series of topological reconstruction
+    increments. 
+    At each increment, the results are saved to a file
+    Unique ids are assigned to each point using integer values starting at 'id_start'
+    """
 
     print('Working on file {:s}...'.format(filename))
     seeds = pygplates.FeatureCollection(filename)
 
+    # convert feature geometries to lists of point coordinate tuples, ages, and ids
     points = [feature.get_geometry().to_lat_lon() for feature in seeds]
     point_begin_times = [feature.get_valid_time()[0] for feature in seeds]
     point_ids = list(range(id_start, id_start+len(points)))
 
+    if initial_time==youngest_time:
+        output_tuples = ([(point[1],
+                           point[0],
+                           point_begin_time,
+                           point_id) for (point, point_begin_time, point_id) in zip(points, 
+                                                                                    point_begin_times,
+                                                                                    point_ids) if point is not None])
+        
+        write_xyz_file('{:s}{:0.1f}Ma.xy'.format(outfile_stem, initial_time), output_tuples)
+        return
+
+    # initiate the topological model time span
     time_spans = topological_model.reconstruct_geometry(points, 
                                                         initial_time, 
                                                         oldest_time=initial_time, 
                                                         youngest_time=0., 
                                                         time_increment=time_step)
 
+    # for each time step, reconstruct the points and save to file unless
+    #   1. there are no active points left
+    #   2. the reconstruction time matches the creation time of the original points 
     for export_time in np.arange(initial_time,
                                  youngest_time-time_step,
                                  -time_step):
@@ -393,8 +416,11 @@ def reconstruct_seed_file_time_span(filename, outfile_stem, id_start,
             # break out of loop since all points have been deactivated
             break
 
+        # TODO implement a case where, if export_time == youngest_time, we simply write the points directly to a file
+
         write_xyz_file('{:s}{:0.1f}Ma.xy'.format(outfile_stem, export_time), output_tuples)
 
+    # increment the id start number in preparation for the next set of points
     id_start += len(points)+1
 
     return id_start
@@ -426,7 +452,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
                                                '{:s}/gridding_input/gridding_input_IC_'.format(grd_output_dir),
                                                id_start, topological_model, max_time, time_step=time_step)
 
-    for birth_time in np.arange(max_time,min_time,-time_step):
+    for birth_time in np.arange(max_time, min_time-time_step, -time_step):
     
         id_start = reconstruct_seed_file_time_span('{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, birth_time),
                                                    '{:s}/gridding_input/gridding_input_{:0.1f}Ma_'.format(grd_output_dir, birth_time), 
@@ -452,7 +478,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
 
 
 ##################################################################
-
+# Gridding
 def make_grid_for_reconstruction_time(raw_point_file, age_grid_time, grdspace, region,
                                       output_dir, output_filename_template='seafloor_age_',
                                       GridColumnFlag=2):
