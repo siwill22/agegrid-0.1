@@ -1,7 +1,4 @@
 import sys
-sys.path.insert(1,'/Users/simon/GPlatesBuilds/pygplates_rev28_python36_MacOS64/')
-sys.path.append('/Users/simon/GIT/GPlatesReconstructionModel/gprm/')
-sys.path.append('/Users/simon/GIT/GPlatesReconstructionModel/gprm/utils/')
 
 import pygplates
 import os
