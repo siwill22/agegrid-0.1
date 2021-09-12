@@ -226,7 +226,7 @@ def get_isochrons_for_ridge_snapshot_parallel(topology_features, rotation_filena
                                   for pool_ridge_time in pool_ridge_time_list)
 
 
-
+"""
 def merge_features(young_time, old_time, time_step, outdir, cleanup=False):
     # merge the seed points from the 'initial condition' and generated through
     # the reconstructed mid-ocean ridges through time into a single file
@@ -253,7 +253,7 @@ def merge_features(young_time, old_time, time_step, outdir, cleanup=False):
             os.remove(f)
         for f in glob.glob("{:s}/MOR_plus_one_points_*.gmt.gplates.xml".format(outdir)):
             os.remove(f)
-
+"""
 
 def get_initial_ocean_seeds(topology_features, input_rotation_filenames, COBterrane_file, output_directory,
                             time, initial_ocean_mean_spreading_rate, initial_ocean_healpix_sampling,
@@ -335,7 +335,67 @@ def get_isochrons_from_topologies(topology_features, input_rotation_filenames, o
 
 ##################################################################################################
 # Functions added for pygplates revision32 mods
+DEFAULT_COLLISION = pygplates.ReconstructedGeometryTimeSpan.DefaultDeactivatePoints()
+
+class ContinentCollision(pygplates.ReconstructedGeometryTimeSpan.DeactivatePoints):
+    def __init__(self,
+                 grd_filename_pattern,
+                 chain_collision_detection=DEFAULT_COLLISION):
+        
+        super(ContinentCollision, self).__init__()
+        
+        self.grd_filename_pattern = grd_filename_pattern
+        self.chain_collision_detection = chain_collision_detection
+        
+        # Load a new grid each time the reconstruction time changes.
+        self.grid_time = None
+        
+        
+    def deactivate(self, prev_point, prev_location, prev_time, current_point, current_location, current_time):
+        # Implement your deactivation algorithm here...
+        
+        from scipy.interpolate import RegularGridInterpolator
+        from gprm.utils.fileio import load_netcdf
+
+        # Load the grid for the current time if encountering a new time.
+        if current_time != self.grid_time:
+            self.grid_time = current_time
+            
+            # Load a grid that is based on the continent masks, assuming the detect_continents
+            # are represented by NaNs
+            # The grid is sampled at each point, and in NaN retrurned, the point is set to inactive
+            filename = '{:s}'.format(self.grd_filename_pattern.format(current_time))
+            print('Points masked against grid: {0}'.format(filename))
+            gridX,gridY,gridZ = load_netcdf(filename)
+            self.continent_deletion_count = 0
+
+            self.f = RegularGridInterpolator((gridX,gridY), gridZ.T, method='nearest')
+
+        # interpolate grid, which is one over continents and zero over oceans.
+        # if value is >0.5 we deactivate
+        #print curr_point
+        if self.f([current_point.to_lat_lon()[1], current_point.to_lat_lon()[0]])>0.5:
+            #print 'deactivating point within continent'
+            self.continent_deletion_count += 1
+            # Detected a collision.
+            return True
+        
+        # We didn't find a collision, so ask the chained collision detection if it did (if we have anything chained).
+        if self.chain_collision_detection:
+            return self.chain_collision_detection.deactivate(prev_point, 
+                                                             prev_location, 
+                                                             prev_time, 
+                                                             current_point, 
+                                                             current_location, 
+                                                             current_time) 
+
+        return False
+
+
 def merge_file_list(outfile, filelist):
+    """
+    Given a list of filenames, check if they exist and merge into a single file
+    """
     with open(outfile,'wb') as wfd:
         for f in filelist:
             if os.path.isfile(f):
@@ -344,6 +404,11 @@ def merge_file_list(outfile, filelist):
       
       
 def merge_output_files(max_time, min_time, time_step, grd_output_dir, cleanup=True): 
+    """
+    Based on the set of files created by 'reconstruct_seed_file_time_span',
+    this function merges all files created for each export time into a single
+    file suitable for input the gridding steps  
+    """
     
     for export_time in np.arange(max_time,min_time-time_step,-time_step):
 
@@ -360,7 +425,8 @@ def merge_output_files(max_time, min_time, time_step, grd_output_dir, cleanup=Tr
 
 def reconstruct_seed_file_time_span(filename, outfile_stem, id_start, 
                                     topological_model, initial_time, 
-                                    youngest_time=0., time_step=1.):
+                                    youngest_time=0., time_step=1.,
+                                    deactivate_points=DEFAULT_COLLISION):
     """
     function to reconstruct a single file of seed points (all with their geometries
     defined at the same appearance time) through a series of topological reconstruction
@@ -377,6 +443,7 @@ def reconstruct_seed_file_time_span(filename, outfile_stem, id_start,
     point_begin_times = [feature.get_valid_time()[0] for feature in seeds]
     point_ids = list(range(id_start, id_start+len(points)))
 
+    # if the seed points were created at the time we want to export, write output file directly
     if initial_time==youngest_time:
         output_tuples = ([(point[1],
                            point[0],
@@ -393,7 +460,8 @@ def reconstruct_seed_file_time_span(filename, outfile_stem, id_start,
                                                         initial_time, 
                                                         oldest_time=initial_time, 
                                                         youngest_time=0., 
-                                                        time_increment=time_step)
+                                                        time_increment=time_step,
+                                                        deactivate_points=deactivate_points)
 
     # for each time step, reconstruct the points and save to file unless
     #   1. there are no active points left
@@ -416,8 +484,6 @@ def reconstruct_seed_file_time_span(filename, outfile_stem, id_start,
             # break out of loop since all points have been deactivated
             break
 
-        # TODO implement a case where, if export_time == youngest_time, we simply write the points directly to a file
-
         write_xyz_file('{:s}{:0.1f}Ma.xy'.format(outfile_stem, export_time), output_tuples)
 
     # increment the id start number in preparation for the next set of points
@@ -432,19 +498,27 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
                       anchor_plate_id=0,
                       subduction_collision_parameters=(5.0, 10.0), 
                       continent_mask_file_pattern=None):
-    # reconstruct the seed points using the reconstruct_by_topologies function
-    # returns the result either as lists or dumps to an ascii file
-
-    #rotation_model = pygplates.RotationModel(input_rotation_filenames)
+    """
+    reconstruct the seed points using the reconstruct_by_topologies function,
+    now implemented in pygplates (revision >32)
+    results are dumped to a series of ascii files
+    """
 
     topological_model = pygplates.TopologicalModel(topology_features,
                                                    input_rotation_filenames,
                                                    anchor_plate_id=anchor_plate_id)
 
-    print('Begin assembling seed points and reconstructing by topologies....')
+    # specify the collision detection
+    default_collision = pygplates.ReconstructedGeometryTimeSpan.DefaultDeactivatePoints()
 
-    #IC_file = '/Users/simon/GIT/agegrid-0.1/grid_files/seedpoints/age_from_distance_to_mor_410.00Ma.gmt'
-    #seed_file_template = '/Users/simon/GIT/agegrid-0.1/grid_files/seedpoints/MOR_plus_one_points_{:0.2f}.gmt'
+    # specify the collision depending on whether the continent collision is specified
+    if continent_mask_file_pattern:
+        collision_spec = ContinentCollision(continent_mask_file_pattern, 
+                                            default_collision)
+    else:
+        collision_spec = default_collision
+
+    print('Begin assembling seed points and reconstructing by topologies....')
 
     id_start = 0
 
@@ -456,22 +530,10 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
     
         id_start = reconstruct_seed_file_time_span('{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, birth_time),
                                                    '{:s}/gridding_input/gridding_input_{:0.1f}Ma_'.format(grd_output_dir, birth_time), 
-                                                   id_start, topological_model, birth_time, time_step=time_step)
+                                                   id_start, topological_model, birth_time, time_step=time_step,
+                                                   deactivate_points=collision_spec)
 
     merge_output_files(max_time, min_time, time_step, grd_output_dir)
-    
-    '''
-    # specify the collision detection
-    default_collision = rbt.DefaultCollision(feature_specific_collision_parameters = [(pygplates.FeatureType.gpml_subduction_zone, 
-                                                                                       subduction_collision_parameters)])
-    
-    # specify the collision depending on whether the continent collision is specified
-    if continent_mask_file_pattern:
-        collision_spec = rbt.ContinentCollision(continent_mask_file_pattern, 
-                                                default_collision)
-    else:
-        collision_spec = default_collision
-    '''
 
     print('done')
     return
@@ -482,8 +544,10 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
 def make_grid_for_reconstruction_time(raw_point_file, age_grid_time, grdspace, region,
                                       output_dir, output_filename_template='seafloor_age_',
                                       GridColumnFlag=2):
-    # given a set of reconstructed points with ages, makes a global grid using
-    # blockmedian and sphinterpolate
+    """
+    given a set of reconstructed points with ages, makes a global grid using
+    blockmedian and sphinterpolate
+    """
 
     block_median_points = tempfile.NamedTemporaryFile(delete=False)
     block_median_points.close()  # Cannot open twice on Windows - close before opening again.
@@ -511,8 +575,10 @@ def make_grid_for_reconstruction_time(raw_point_file, age_grid_time, grdspace, r
 
 def write_synthetic_points(all_longitudes, all_latitudes, all_birth_ages, all_reconstruction_ages,
                            reconstruction_time, raw_point_file):
-    # writes an ascii file that contains the points to be input to make an age grid
-    # at one reconstruction time snapshot.
+    """
+    writes an ascii file that contains the points to be input to make an age grid
+    at one reconstruction time snapshot.
+    """
 
     # we need the age of each point at the time of the reconstruction, which
     # is the age of birth minus the reconstruction time
