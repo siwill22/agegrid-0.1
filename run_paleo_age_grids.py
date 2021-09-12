@@ -40,8 +40,8 @@ config_file = sys.argv[1]
 print('Input parameter definition completed')
 
 subduction_collision_parameters = (5.0, 10.0)
-#continent_collision_detection = True
-continent_mask_file_pattern = '%s/masks/mask_{:0.1f}Ma.nc' % grd_output_dir
+continent_mask_file_pattern = None
+#continent_mask_file_pattern = '%s/masks/mask_{:0.1f}Ma.nc' % grd_output_dir
 
 seedpoints_output_dir = '{:s}/seedpoints/'.format(grd_output_dir)
 
