@@ -378,6 +378,7 @@ class ContinentCollision(pygplates.ReconstructedGeometryTimeSpan.DeactivatePoint
             #print 'deactivating point within continent'
             self.continent_deletion_count += 1
             # Detected a collision.
+            #print('Found point in continent')
             return True
         
         # We didn't find a collision, so ask the chained collision detection if it did (if we have anything chained).
@@ -541,7 +542,7 @@ def _reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_o
 
 ###---------------------
 def get_time_span(filename, topological_model, id_start, initial_time, 
-                  youngest_time=0, time_increment=1):
+                  youngest_time=0, time_increment=1, deactivate_points=DEFAULT_COLLISION):
     
     print('Working on file {:s}...'.format(filename))
     seeds = pygplates.FeatureCollection(filename)
@@ -554,7 +555,8 @@ def get_time_span(filename, topological_model, id_start, initial_time,
                                                         initial_time=initial_time,
                                                         oldest_time=initial_time,
                                                         youngest_time=0,
-                                                        time_increment=time_increment)
+                                                        time_increment=time_increment,
+                                                        deactivate_points=deactivate_points)
         
     return time_span, point_begin_times, point_ids
 
@@ -572,7 +574,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
 
     # specify the collision detection
     default_collision = pygplates.ReconstructedGeometryTimeSpan.DefaultDeactivatePoints(
-        threshold_velocity_delta=0.5
+        #threshold_velocity_delta=0.5
     )
 
     # specify the collision depending on whether the continent collision is specified
@@ -591,7 +593,8 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
     time_span = get_time_span(initial_ocean_seedpoint_filename, 
                               topological_model,
                               id_start, max_time, 
-                              youngest_time=min_time, time_increment=time_step)
+                              youngest_time=min_time, time_increment=time_step,
+                              deactivate_points=collision_spec)
     id_start += len(time_span[2])+1
     time_spans.append(time_span)                                          
 
@@ -600,7 +603,8 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
         time_span = get_time_span('{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, birth_time), 
                                   topological_model,
                                   id_start, birth_time, 
-                                  youngest_time=min_time, time_increment=time_step)
+                                  youngest_time=min_time, time_increment=time_step,
+                                  deactivate_points=collision_spec)
         #print(time_span)
         id_start += len(time_span[2])+1
         time_spans.append(time_span)
