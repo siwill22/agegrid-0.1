@@ -492,7 +492,7 @@ def reconstruct_seed_file_time_span(filename, outfile_stem, id_start,
     return id_start
 
 
-def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
+def _reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
                       mor_seedpoint_filename, initial_ocean_seedpoint_filename,
                       max_time, min_time, time_step, grd_output_dir,
                       anchor_plate_id=0,
@@ -537,6 +537,102 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
 
     print('done')
     return
+
+
+###---------------------
+def get_time_span(filename, topological_model, id_start, initial_time, 
+                  youngest_time=0, time_increment=1):
+    
+    print('Working on file {:s}...'.format(filename))
+    seeds = pygplates.FeatureCollection(filename)
+
+    points = [feature.get_geometry().to_lat_lon() for feature in seeds]
+    point_begin_times = [feature.get_valid_time()[0] for feature in seeds]
+    point_ids = list(range(id_start, id_start+len(points)))
+
+    time_span = topological_model.reconstruct_geometry(points,
+                                                        initial_time=initial_time,
+                                                        oldest_time=initial_time,
+                                                        youngest_time=0,
+                                                        time_increment=time_increment)
+        
+    return time_span, point_begin_times, point_ids
+
+
+def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
+                      mor_seedpoint_filename, initial_ocean_seedpoint_filename,
+                      max_time, min_time, time_step, grd_output_dir,
+                      anchor_plate_id=0,
+                      subduction_collision_parameters=(5.0, 10.0), 
+                      continent_mask_file_pattern=None):
+
+    topological_model = pygplates.TopologicalModel(topology_features,
+                                                   input_rotation_filenames,
+                                                   anchor_plate_id=anchor_plate_id)
+
+    # specify the collision detection
+    default_collision = pygplates.ReconstructedGeometryTimeSpan.DefaultDeactivatePoints(
+        threshold_velocity_delta=0.5
+    )
+
+    # specify the collision depending on whether the continent collision is specified
+    if continent_mask_file_pattern:
+        collision_spec = ContinentCollision(continent_mask_file_pattern, 
+                                            default_collision)
+    else:
+        collision_spec = default_collision
+
+    print('Begin assembling seed points and reconstructing by topologies....')
+
+    id_start = 0
+
+    time_spans = []
+
+    time_span = get_time_span(initial_ocean_seedpoint_filename, 
+                              topological_model,
+                              id_start, max_time, 
+                              youngest_time=min_time, time_increment=time_step)
+    id_start += len(time_span[2])+1
+    time_spans.append(time_span)                                          
+
+    for birth_time in np.arange(max_time,min_time,-time_step):
+        
+        time_span = get_time_span('{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, birth_time), 
+                                  topological_model,
+                                  id_start, birth_time, 
+                                  youngest_time=min_time, time_increment=time_step)
+        #print(time_span)
+        id_start += len(time_span[2])+1
+        time_spans.append(time_span)
+        
+
+    for export_time in np.arange(max_time,
+                                 min_time-time_step,
+                                 -time_step):
+        
+        print('Exporting gridding input for time {:0.1f}...'.format(export_time))
+        
+        recon_points_at_time = []
+        
+        for (time_span, point_begin_times, point_ids) in time_spans:
+        
+            reconstructed_points = time_span.get_geometry_points(export_time, return_inactive_points=True)
+
+            if reconstructed_points:
+
+                recon_points_at_time.extend(([(reconstructed_point.to_lat_lon()[1],
+                                                reconstructed_point.to_lat_lon()[0],
+                                                point_begin_time-export_time,
+                                                point_id) for (reconstructed_point, point_begin_time, point_id) in zip(reconstructed_points,
+                                                                                                                    point_begin_times,
+                                                                                                                    point_ids) if reconstructed_point is not None]))
+
+            else:
+                # break out of loop since all points have been deactivated
+                break
+        
+        write_xyz_file('{:s}/gridding_input/gridding_input_{:0.1f}Ma_'.format(grd_output_dir, birth_time), recon_points_at_time)    
+
 
 
 ##################################################################
