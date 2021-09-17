@@ -525,7 +525,8 @@ def _reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_o
 
     id_start = reconstruct_seed_file_time_span(initial_ocean_seedpoint_filename, 
                                                '{:s}/gridding_input/gridding_input_IC_'.format(grd_output_dir),
-                                               id_start, topological_model, max_time, time_step=time_step)
+                                               id_start, topological_model, max_time, time_step=time_step,
+                                               deactivate_points=collision_spec)
 
     for birth_time in np.arange(max_time, min_time-time_step, -time_step):
     
@@ -552,13 +553,13 @@ def get_time_span(filename, topological_model, id_start, initial_time,
     point_ids = list(range(id_start, id_start+len(points)))
 
     time_span = topological_model.reconstruct_geometry(points,
-                                                        initial_time=initial_time,
-                                                        oldest_time=initial_time,
-                                                        youngest_time=0,
-                                                        time_increment=time_increment,
-                                                        deactivate_points=deactivate_points)
+                                                       initial_time=initial_time,
+                                                       oldest_time=initial_time,
+                                                       youngest_time=youngest_time,
+                                                       time_increment=time_increment,
+                                                       deactivate_points=deactivate_points)
         
-    return time_span, point_begin_times, point_ids
+    return time_span, initial_time, point_begin_times, point_ids
 
 
 def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
@@ -598,6 +599,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
     id_start += len(time_span[2])+1
     time_spans.append(time_span)                                          
 
+    # NB Not creating a time span that includes min_time MORs....
     for birth_time in np.arange(max_time,min_time,-time_step):
         
         time_span = get_time_span('{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, birth_time), 
@@ -618,8 +620,14 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
         
         recon_points_at_time = []
         
-        for (time_span, point_begin_times, point_ids) in time_spans:
+        for (time_span, time_span_initial_time, point_begin_times, point_ids) in time_spans:
+
+            print('Exporting for time {}Ma, point birth time is {}'.format(export_time,point_begin_times[0]))
         
+            # If the time span only begins at t=X, we don't care about it for any older time
+            if time_span_initial_time<export_time:
+                continue
+
             reconstructed_points = time_span.get_geometry_points(export_time, return_inactive_points=True)
 
             if reconstructed_points:
@@ -631,11 +639,8 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
                                                                                                                     point_begin_times,
                                                                                                                     point_ids) if reconstructed_point is not None]))
 
-            else:
-                # break out of loop since all points have been deactivated
-                break
         
-        write_xyz_file('{:s}/gridding_input/gridding_input_{:0.1f}Ma_'.format(grd_output_dir, birth_time), recon_points_at_time)    
+        write_xyz_file('{:s}/gridding_input/gridding_input_{:0.1f}Ma.xy'.format(grd_output_dir, export_time), recon_points_at_time)
 
 
 
