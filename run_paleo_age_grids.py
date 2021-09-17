@@ -63,7 +63,7 @@ if not os.path.isdir('{0}/seedpoints/'.format(grd_output_dir)):
 initial_ocean_seedpoint_filename = '{:s}/seedpoints/age_from_distance_to_mor_{:0.2f}Ma.gmt'.format(grd_output_dir, max_time)
 mor_seedpoint_filename = '{:s}/seedpoints/MOR_plus_one_merge_{:0.2f}_{:0.2f}.gmt'.format(grd_output_dir, min_time, max_time)
 
-'''
+#'''
 aags.make_masking_grids(COBterrane_file, input_rotation_filenames, max_time, min_time, gridding_time_step, 
                         grdspace, region, grd_output_dir, output_gridfile_template, num_cpus)
 
@@ -75,8 +75,8 @@ aags.get_initial_ocean_seeds(topology_features, input_rotation_filenames, COBter
 
 aags.get_isochrons_from_topologies(topology_features, input_rotation_filenames, seedpoints_output_dir,
                                    max_time, min_time, mor_time_step, ridge_sampling, num_cpus=num_cpus)
-'''
-
+#'''
+#'''
 aags.reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
                        mor_seedpoint_filename, initial_ocean_seedpoint_filename,
                        max_time, min_time, gridding_time_step, grd_output_dir,
