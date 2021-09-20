@@ -621,12 +621,13 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
         recon_points_at_time = []
         
         for (time_span, time_span_initial_time, point_begin_times, point_ids) in time_spans:
-
-            print('Exporting for time {}Ma, point birth time is {}'.format(export_time,point_begin_times[0]))
         
             # If the time span only begins at t=X, we don't care about it for any older time
             if time_span_initial_time<export_time:
                 continue
+
+            print('Exporting for time {}Ma, point birth time is {}'.format(export_time,point_begin_times[0]))
+
 
             reconstructed_points = time_span.get_geometry_points(export_time, return_inactive_points=True)
 
