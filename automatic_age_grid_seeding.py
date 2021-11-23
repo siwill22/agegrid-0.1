@@ -353,12 +353,12 @@ class ContinentCollision(pygplates.ReconstructedGeometryTimeSpan.DeactivatePoint
         
     def deactivate(self, prev_point, prev_location, prev_time, current_point, current_location, current_time):
         # Implement your deactivation algorithm here...
-        
-        from scipy.interpolate import RegularGridInterpolator
-        from gprm.utils.fileio import load_netcdf
 
         # Load the grid for the current time if encountering a new time.
         if current_time != self.grid_time:
+            from scipy.interpolate import RegularGridInterpolator
+            from gprm.utils.fileio import load_netcdf
+
             self.grid_time = current_time
             
             # Load a grid that is based on the continent masks, assuming the detect_continents
