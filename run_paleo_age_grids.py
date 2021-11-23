@@ -5,9 +5,9 @@ import sys
 
 import pygplates
 import os
-import multiprocessing
+#import multiprocessing
 import numpy as np
-import glob
+#import glob
 from shutil import copy2
 #import matplotlib.pyplot as plt
 #from mpl_toolkits.basemap import Basemap
@@ -56,7 +56,7 @@ if not os.path.isdir('{0}/masks/'.format(grd_output_dir)):
 if not os.path.isdir('{0}/gridding_input/'.format(grd_output_dir)):
     os.mkdir('{0}/gridding_input/'.format(grd_output_dir))
 if not os.path.isdir('{0}/seedpoints/'.format(grd_output_dir)):
-    os.mkdir('{0}/seedpoints/'.format(grd_output_dir))    
+    os.mkdir('{0}/seedpoints/'.format(grd_output_dir))
 ###################################################
 
 
@@ -64,7 +64,7 @@ initial_ocean_seedpoint_filename = '{:s}/seedpoints/age_from_distance_to_mor_{:0
 mor_seedpoint_filename = '{:s}/seedpoints/MOR_plus_one_merge_{:0.2f}_{:0.2f}.gmt'.format(grd_output_dir, min_time, max_time)
 
 #'''
-aags.make_masking_grids(COBterrane_file, input_rotation_filenames, max_time, min_time, gridding_time_step, 
+aags.make_masking_grids(COBterrane_file, input_rotation_filenames, max_time, min_time, gridding_time_step,
                         grdspace, region, grd_output_dir, output_gridfile_template, num_cpus)
 
 

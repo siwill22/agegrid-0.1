@@ -704,7 +704,7 @@ def make_masks_job(reconstruction_time, COBterrane_file, input_rotation_filename
     rotation_model = pygplates.RotationModel(input_rotation_filenames)
     print('Masking for time {:0.2f} Ma'.format(reconstruction_time))
     mask = get_merged_cob_terrane_raster(COBterrane_file, rotation_model, reconstruction_time,
-                                         grdspace)
+                                         grdspace, method='rasterio')
 
 
     gridX = np.arange(-180.,180.+grdspace,grdspace)
@@ -717,5 +717,3 @@ def make_masks_job(reconstruction_time, COBterrane_file, input_rotation_filename
                  format='NETCDF4_CLASSIC', encoding={'z': {'dtype': 'int16'}})
     ds.close()
     return
-
-
