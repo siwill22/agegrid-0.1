@@ -21,6 +21,6 @@ tmp.gmt
 tmp.xy
 gmt.conf
 tmp/*
-test_files/*
 Liu_410/*
 Liu_410_C591/*
+test_files/*
