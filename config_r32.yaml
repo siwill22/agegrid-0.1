@@ -1,0 +1,47 @@
+#####################################
+InputFiles:
+    MODELDIR: './input_files/Young++2018/'
+    input_rotation_filenames:
+        - 'Global_250-0Ma_Young_et_al_Rfix.rot'
+        - 'Global_410-250Ma_Young_et_al_Rfix.rot'
+    topology_features:
+        - 'Global_Mesozoic-Cenozoic_plate_boundaries_Young_et_al_R.gpml'
+        - 'Global_Paleozoic_plate_boundaries_Young_et_al_R.gpml'
+        - 'TopologyBuildingBlocks_Young_et_al_R.gpml'
+
+    COBterrane_file: 'Global_EarthByte_GeeK07_COB_Terranes_Young_etal_MOD.gpml'
+
+# name of output directories
+OutputFiles:
+    grd_output_dir: './test_files'
+    output_gridfile_template: 'Y19_seafloor_age_'
+
+TimeParameters:
+# --- set parameters
+    min_time: 0.
+    max_time: 410.
+    mor_time_step: 10.
+    gridding_time_step: 10.
+
+# Distance in arc-degrees along ridges at which to tessellate lines to
+# create seed points
+# BUT: does not desample the points where the original line geometries
+# are already closer than the specified distance
+SpatialParameters:
+    ridge_sampling: 1.0
+    initial_ocean_healpix_sampling: 64
+    initial_ocean_mean_spreading_rate: 75.
+
+    # used to remove small polygons in the masking. Units are area on unit sphere
+    area_threshold: 0.0001
+
+    # Control the gridding extent and resolution parameters passed to GMT
+    grdspace: 1.0
+    xmin: -180.
+    xmax: 180.
+    ymin: -90.
+    ymax: 90.
+
+    grid_masking: True
+
+num_cpus: 4
