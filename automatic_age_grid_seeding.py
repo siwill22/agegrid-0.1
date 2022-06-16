@@ -193,7 +193,7 @@ def get_isochrons_for_ridge_snapshot(topology_features,
         feature.set_geometry(curr_point)
         feature.set_valid_time(ridge_time, -999)  # delete - time_step
         mor_point_features.append(feature)
-    pygplates.FeatureCollection(mor_point_features).write('./{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(out_dir, ridge_time))
+    pygplates.FeatureCollection(mor_point_features).write('{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(out_dir, ridge_time))
     #
     print("... Finished writing seed points along the mid ocean ridge for {:0.2f} Ma".format(ridge_time))
 
