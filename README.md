@@ -30,7 +30,8 @@ The following python libraries are required:
 - xarray
 - netcdf4
 - joblib
-- PlateTectonicsTools
+- PlateTectonicsTools (https://github.com/EarthByte/PlateTectonicTools)
+- GPlatesReconstructionModel (https://github.com/siwill22/GPlatesReconstructionModel)
 - pyyaml
 - scipy
 - scikit-image
