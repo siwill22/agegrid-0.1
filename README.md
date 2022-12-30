@@ -7,7 +7,7 @@ Repository contains a workflow to generate grids of seafloor age from a topologi
 
 ![PaleoAgeGridAnimation](https://github.com/siwill22/agegrid-0.1/blob/master/images/AgeGridAnimation.gif)
 
-The entire workflow can be launched using the python file '05_Complete.py', with a config file specified as an input argument, for example:
+The entire workflow can be launched using the python file 'run_paleo_age_grids.py', with a config file specified as an input argument, for example:
 
     python run_paleo_age_grids.py my_config_file.yml
 
@@ -30,7 +30,8 @@ The following python libraries are required:
 - xarray
 - netcdf4
 - joblib
-- PlateTectonicsTools
+- PlateTectonicsTools (https://github.com/EarthByte/PlateTectonicTools)
+- GPlatesReconstructionModel (https://github.com/siwill22/GPlatesReconstructionModel)
 - pyyaml
 - scipy
 - scikit-image
