@@ -63,7 +63,7 @@ mor_seedpoint_filename = '{:s}/seedpoints/MOR_plus_one_merge_{:0.2f}_{:0.2f}.gmt
 #'''
 aags.make_masking_grids(COBterrane_file, input_rotation_filenames, max_time, min_time, gridding_time_step,
                         grdspace, region, grd_output_dir, output_gridfile_template, num_cpus)
-
+#'''
 
 aags.get_initial_ocean_seeds(topology_features, input_rotation_filenames, COBterrane_file, seedpoints_output_dir,
                              max_time, initial_ocean_mean_spreading_rate, initial_ocean_healpix_sampling,
