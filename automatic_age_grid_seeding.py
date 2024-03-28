@@ -28,6 +28,7 @@ import xarray as xr
 from joblib import Parallel, delayed
 import tempfile
 import yaml
+import pygmt
 
 import ptt.utils.points_spatial_tree as points_spatial_tree
 import ptt.utils.points_in_polygons as points_in_polygons
@@ -365,7 +366,7 @@ class ContinentCollision(pygplates.ReconstructedGeometryTimeSpan.DeactivatePoint
             # are represented by NaNs
             # The grid is sampled at each point, and in NaN retrurned, the point is set to inactive
             filename = '{:s}'.format(self.grd_filename_pattern.format(current_time))
-            print('Points masked against grid: {0}'.format(filename))
+            #print('Points masked against grid: {0}'.format(filename))
             gridX,gridY,gridZ = load_netcdf(filename)
             self.continent_deletion_count = 0
 
@@ -478,7 +479,7 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
             if time_span_initial_time<export_time:
                 continue
 
-            print('Exporting for time {}Ma, point birth time is {}'.format(export_time,point_begin_times[0]))
+            #print('Exporting for time {}Ma, point birth time is {}'.format(export_time,point_begin_times[0]))
 
 
             reconstructed_points = time_span.get_geometry_points(export_time, return_inactive_points=True)
@@ -652,7 +653,7 @@ def make_grids_from_reconstructed_seeds(input_rotation_filenames, max_time, min_
 
         print('Begin masking....')
         Parallel(n_jobs=num_cpus)(delayed(masking_job) \
-                                  (reconstruction_time, COBterrane_file, input_rotation_filenames, grdspace,
+                                  (reconstruction_time, region,
                                    grd_output_dir, output_gridfile_template) \
                                   for reconstruction_time in time_list)
 
@@ -676,22 +677,32 @@ def gridding_job(input_rotation_filenames, reconstruction_time,
     return
 
 
-def masking_job(reconstruction_time, COBterrane_file, input_rotation_filenames,
-                grdspace, grd_output_dir, output_gridfile_template='seafloor_age_'):
+def masking_job(reconstruction_time, region,
+                grd_output_dir, output_gridfile_template='seafloor_age_'):
 
-    rotation_model = pygplates.RotationModel(input_rotation_filenames)
+    #rotation_model = pygplates.RotationModel(input_rotation_filenames)
     print('Masking for time {:0.2f} Ma'.format(reconstruction_time))
     #mask = pt.get_merged_cob_terrane_raster(COBterrane_file, rotation_model, reconstruction_time,
     #                                        grdspace)
 
-    maskX,maskY,mask = load_netcdf('{0}/masks/mask_{1}Ma.nc'.format(grd_output_dir, reconstruction_time))
+    #maskX,maskY,mask = load_netcdf('{0}/masks/mask_{1}Ma.nc'.format(grd_output_dir, reconstruction_time))
+    # TODO 
+    # the region of the output grid may not match the region of the masks (which are always global)
+    # Need to handle this mismatch
 
-    ds = xr.open_dataset('{0}/unmasked/{1}{2}Ma.nc'.format(grd_output_dir, output_gridfile_template, reconstruction_time))
+    if np.array_equal(region, [-180, 180, -90, 90]):
+        mask = xr.open_dataarray('{0}/masks/mask_{1}Ma.nc'.format(grd_output_dir, reconstruction_time))
+    else:
+        mask = pygmt.grdsample('{0}/masks/mask_{1}Ma.nc'.format(grd_output_dir, reconstruction_time), 
+                               region='{0}/unmasked/{1}{2}Ma.nc'.format(grd_output_dir, output_gridfile_template, reconstruction_time))
+
+    ds = xr.open_dataarray('{0}/unmasked/{1}{2}Ma.nc'.format(grd_output_dir, output_gridfile_template, reconstruction_time))
+
     # workaround for a bug in older versions of xarray, where masking array cannot be applied directly to data array
     #ds['z'][mask==1] = np.nan
-    z_array = ds['z'].data
-    z_array[mask==1] = np.nan
-    ds['z'].data = z_array
+    z_array = ds.data
+    z_array[mask.data==1] = np.nan
+    ds.data = z_array
     ds.to_netcdf('{0}/masked/{1}mask_{2}Ma.nc'.format(grd_output_dir, output_gridfile_template, reconstruction_time),
                  format='NETCDF4_CLASSIC')
     ds.close()
