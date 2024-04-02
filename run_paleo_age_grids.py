@@ -30,7 +30,7 @@ config_file = sys.argv[1]
  grd_output_dir, output_gridfile_template,
  min_time, max_time, mor_time_step, gridding_time_step, ridge_sampling,
  initial_ocean_healpix_sampling, initial_ocean_mean_spreading_rate, area_threshold,
- grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus) = aags.get_input_parameters(config_file)
+ grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus, backend) = aags.get_input_parameters(config_file)
 
 
 
@@ -78,7 +78,7 @@ aags.reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_o
                        mor_seedpoint_filename, initial_ocean_seedpoint_filename,
                        max_time, min_time, gridding_time_step, grd_output_dir,
                        subduction_collision_parameters=subduction_collision_parameters,
-                       continent_mask_file_pattern=continent_mask_file_pattern)
+                       continent_mask_file_pattern=continent_mask_file_pattern, backend=backend)
 #'''
 
 

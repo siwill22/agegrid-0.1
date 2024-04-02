@@ -38,10 +38,7 @@ import gprm.utils.paleogeography as pg
 from gprm.utils.spatial import rasterise_polygons, get_merged_cob_terrane_polygons, get_merged_cob_terrane_raster
 from gprm.utils.fileio import load_netcdf, write_netcdf_grid, write_xyz_file
 
-#import reconstruct_by_topologies as rbt
-
-#import reconstruct_by_topologies_VS as rbt
-#print 'USING SCALED VELOCITIES....'
+import reconstruct_by_topologies as rbt
 
 import ptt.separate_ridge_transform_segments as separate_ridge_transform_segments
 
@@ -105,12 +102,13 @@ def get_input_parameters(config_file):
         grid_masking = params['SpatialParameters']['grid_masking']
 
         num_cpus = params['num_cpus']
+        backend = params['reconstruction_backend']
 
     return (input_rotation_filenames, topology_features, COBterrane_file,
             grd_output_dir, output_gridfile_template,
             min_time, max_time, mor_time_step, gridding_time_step, ridge_sampling,
             initial_ocean_healpix_sampling, initial_ocean_mean_spreading_rate, area_threshold,
-            grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus)
+            grdspace, xmin, xmax, ymin, ymax, region, grid_masking, num_cpus, backend)
 
 
 
@@ -415,7 +413,38 @@ def get_time_span(filename, topological_model, id_start, initial_time,
     return time_span, initial_time, point_begin_times, point_ids
 
 
+#########################################################################
 def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_output_dir,
+                      mor_seedpoint_filename, initial_ocean_seedpoint_filename,
+                      max_time, min_time, time_step, grd_output_dir,
+                      anchor_plate_id=0,
+                      subduction_collision_parameters=(5.0, 10.0), 
+                      continent_mask_file_pattern=None,
+                      backend='v2'):
+    """
+    For rigid reconstructions, the 'old' reconstruct_by_topologies function will be much faster
+    However, deforming models require the 'new' version
+    """
+
+    if backend=='v1':
+        reconstruct_seeds_v1(input_rotation_filenames, topology_features, seedpoints_output_dir,
+                             mor_seedpoint_filename, initial_ocean_seedpoint_filename,
+                             max_time, min_time, time_step, grd_output_dir,
+                             anchor_plate_id=anchor_plate_id,
+                             subduction_collision_parameters=subduction_collision_parameters, 
+                             continent_mask_file_pattern=continent_mask_file_pattern)
+
+    elif backend=='v2':
+        reconstruct_seeds_v2(input_rotation_filenames, topology_features, seedpoints_output_dir,
+                             mor_seedpoint_filename, initial_ocean_seedpoint_filename,
+                             max_time, min_time, time_step, grd_output_dir,
+                             anchor_plate_id=anchor_plate_id,
+                             subduction_collision_parameters=subduction_collision_parameters, 
+                             continent_mask_file_pattern=continent_mask_file_pattern)
+        
+    
+
+def reconstruct_seeds_v2(input_rotation_filenames, topology_features, seedpoints_output_dir,
                       mor_seedpoint_filename, initial_ocean_seedpoint_filename,
                       max_time, min_time, time_step, grd_output_dir,
                       anchor_plate_id=0,
@@ -495,6 +524,125 @@ def reconstruct_seeds(input_rotation_filenames, topology_features, seedpoints_ou
 
         
         write_xyz_file('{:s}/gridding_input/gridding_input_{:0.1f}Ma.xy'.format(grd_output_dir, export_time), recon_points_at_time)
+
+
+def reconstruct_seeds_v1(input_rotation_filenames, topology_features, seedpoints_output_dir,
+                         mor_seedpoint_filename, initial_ocean_seedpoint_filename,
+                         max_time, min_time, time_step, grd_output_dir,
+                         subduction_collision_parameters=(5.0, 10.0), 
+                         anchor_plate_id=None,
+                         continent_mask_file_pattern=None):
+    # reconstruct the seed points using the reconstruct_by_topologies function
+    # returns the result either as lists or dumps to an ascii file
+
+    rotation_model = pygplates.RotationModel(input_rotation_filenames)
+
+    print('Begin assembling seed points and reconstructing by topologies....')
+
+    # load features to reconstruct
+    cp = []  # current_point # TODO more verbose names for cp and at
+    at = []  # appearance_time
+    birth_lat = []  # latitude_of_crust_formation
+    prev_lat = []
+    prev_lon = []
+
+    seeds_at_start_time = pygplates.FeatureCollection(initial_ocean_seedpoint_filename)
+    for feature in seeds_at_start_time:
+        cp.append(feature.get_geometry())
+        at.append(feature.get_valid_time()[0])
+        birth_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])  # Why use a list here??
+        prev_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
+        prev_lon.append(feature.get_geometry().to_lat_lon_list()[0][1])
+
+    #seeds_from_topologies = pygplates.FeatureCollection(mor_seedpoint_filename)
+    seeds_from_topologies = []
+
+    for time in np.arange(max_time, min_time-time_step, -time_step):
+        filename = './{:s}/MOR_plus_one_points_{:0.2f}.gmt'.format(seedpoints_output_dir, time)
+        print('merging seeds from file {:s}'.format(filename))
+        features = pygplates.FeatureCollection(filename)
+        for feature in features:
+            seeds_from_topologies.append(feature)
+
+    for feature in seeds_from_topologies:
+        if feature.get_valid_time()[0]<max_time:
+            cp.append(feature.get_geometry())
+            at.append(feature.get_valid_time()[0])
+            birth_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
+            prev_lat.append(feature.get_geometry().to_lat_lon_list()[0][0])
+            prev_lon.append(feature.get_geometry().to_lat_lon_list()[0][1])
+
+    point_id = range(len(cp))
+
+    # specify the collision detection
+    default_collision = rbt.DefaultCollision(feature_specific_collision_parameters = [(pygplates.FeatureType.gpml_subduction_zone, 
+                                                                                       subduction_collision_parameters)])
+    
+    # specify the collision depending on whether the continent collision is specified
+    if continent_mask_file_pattern:
+        collision_spec = rbt.ContinentCollision(continent_mask_file_pattern, 
+                                                default_collision)
+    else:
+        collision_spec = default_collision
+
+    print('preparing reconstruction by topologies....')
+    topology_reconstruction = rbt.ReconstructByTopologies(
+            rotation_model, topology_features,
+            max_time, min_time, time_step,
+            cp, point_begin_times=at,
+            detect_collisions = collision_spec)
+
+
+    # Initialise the reconstruction.
+    topology_reconstruction.begin_reconstruction()
+
+    # Loop over the reconstruction times until reached end of the reconstruction time span, or
+    # all points have entered their valid time range *and* either exited their time range or
+    # have been deactivated (subducted forward in time or consumed by MOR backward in time).
+    while True:
+        print('reconstruct by topologies: working on time {:0.2f} Ma'.format(topology_reconstruction.get_current_time()))
+
+        curr_points = topology_reconstruction.get_active_current_points()
+
+        print(len(cp),len(prev_lat))
+
+        curr_lat_lon_points = [point.to_lat_lon() for point in curr_points]
+        if curr_lat_lon_points:
+            curr_latitudes, curr_longitudes = zip(*curr_lat_lon_points)
+
+
+            seafloor_age = []
+            birth_lat_snapshot = []
+            point_id_snapshot = []
+            prev_lat_snapshot = []
+            prev_lon_snapshot = []
+            for point_index,current_point in enumerate(topology_reconstruction.get_all_current_points()):
+                if current_point is not None:
+                    #all_birth_ages.append(at[point_index])
+                    seafloor_age.append(at[point_index] - topology_reconstruction.get_current_time())
+                    birth_lat_snapshot.append(birth_lat[point_index])
+                    point_id_snapshot.append(point_id[point_index])
+                    prev_lat_snapshot.append(prev_lat[point_index])
+                    prev_lon_snapshot.append(prev_lon[point_index])
+                    
+                    prev_lat[point_index] = current_point.to_lat_lon()[0]
+                    prev_lon[point_index] = current_point.to_lat_lon()[1]
+
+
+            write_xyz_file('{:s}/gridding_input/gridding_input_{:0.1f}Ma.xy'.format(grd_output_dir,
+                                                                     topology_reconstruction.get_current_time()),
+                           zip(curr_longitudes,
+                           curr_latitudes,
+                           seafloor_age,
+                           birth_lat_snapshot,
+                           point_id_snapshot))
+
+
+        if not topology_reconstruction.reconstruct_to_next_time():
+            break
+
+    print('done')
+    return
 
 
 
