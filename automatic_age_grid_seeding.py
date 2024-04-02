@@ -102,7 +102,10 @@ def get_input_parameters(config_file):
         grid_masking = params['SpatialParameters']['grid_masking']
 
         num_cpus = params['num_cpus']
-        backend = params['reconstruction_backend']
+        if 'reconstruction_backend' in params:
+            backend = params['reconstruction_backend']
+        else:
+            backend='v2'
 
     return (input_rotation_filenames, topology_features, COBterrane_file,
             grd_output_dir, output_gridfile_template,
