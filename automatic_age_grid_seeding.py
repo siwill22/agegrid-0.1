@@ -492,7 +492,7 @@ def reconstruct_seeds_v2(input_rotation_filenames, topology_features, seedpoints
                                   id_start, birth_time, 
                                   youngest_time=min_time, time_increment=time_step,
                                   deactivate_points=collision_spec)
-        #print(time_span)
+        
         id_start += len(time_span[2])+1
         time_spans.append(time_span)
         
@@ -607,12 +607,9 @@ def reconstruct_seeds_v1(input_rotation_filenames, topology_features, seedpoints
 
         curr_points = topology_reconstruction.get_active_current_points()
 
-        print(len(cp),len(prev_lat))
-
         curr_lat_lon_points = [point.to_lat_lon() for point in curr_points]
         if curr_lat_lon_points:
             curr_latitudes, curr_longitudes = zip(*curr_lat_lon_points)
-
 
             seafloor_age = []
             birth_lat_snapshot = []
